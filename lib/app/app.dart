@@ -13,7 +13,7 @@ class RollWorkerApp extends ConsumerStatefulWidget {
 }
 
 class _RollWorkerAppState extends ConsumerState<RollWorkerApp> {
-  late final _router = buildRouter();
+  late final _router = buildRouter(ref);
 
   @override
   Widget build(BuildContext context) {
