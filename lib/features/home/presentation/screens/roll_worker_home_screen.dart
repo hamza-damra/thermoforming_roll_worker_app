@@ -8,6 +8,15 @@ import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/app_secondary_button.dart';
 import '../../../../core/widgets/info_row.dart';
+import '../../../previous_roll/domain/entities/previous_roll_resolution.dart';
+import '../../../previous_roll/presentation/controllers/previous_roll_resolution_controller.dart';
+import '../../../previous_roll/presentation/controllers/previous_roll_resolution_state.dart';
+import '../../../previous_roll/presentation/widgets/close_previous_roll_dialog.dart';
+import '../../../previous_roll/presentation/widgets/closed_roll_summary_card.dart';
+import '../../../previous_roll/presentation/widgets/full_consume_confirm_dialog.dart';
+import '../../../previous_roll/presentation/widgets/grinding_dialog.dart';
+import '../../../previous_roll/presentation/widgets/return_remaining_dialog.dart';
+import '../../../roll_scan/domain/entities/mounted_roll.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_controller.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_state.dart';
 import '../../../roll_scan/presentation/screens/scan_roll_screen.dart';
@@ -17,13 +26,14 @@ import '../../../roll_worker_auth/presentation/controllers/roll_worker_auth_cont
 
 /// Real Roll Worker home — replaces the Stage 3 placeholder.
 ///
-/// Stage 5 surface:
+/// Surface:
 ///   - Worker / line context card
-///   - Active mount card (when a roll is mounted) OR empty mount CTA
+///   - Active mount card + close button when a roll is mounted
+///   - Closed-roll summary card immediately after a successful close
+///   - Empty mount CTA when nothing is mounted
 ///   - Logout button
 ///
-/// Stage 6 will add the close-previous-roll dialog; Stage 7 stub the
-/// product-switch entry; Stage 8 the reprint button.
+/// Stage 7 will stub the product-switch entry; Stage 8 the reprint button.
 class RollWorkerHomeScreen extends ConsumerWidget {
   const RollWorkerHomeScreen({
     super.key,
@@ -40,9 +50,11 @@ class RollWorkerHomeScreen extends ConsumerWidget {
   static const String palletizingLine = 'خط الطبليات المرتبط';
   static const String sessionStarted = 'بدأت الجلسة';
   static const String mountNewRoll = 'تركيب رول جديد';
+  static const String closePreviousRoll = 'إغلاق الرول السابق';
   static const String emptyMountHeading = 'لا يوجد رول مركّب حاليًا';
   static const String emptyMountDetail = 'ابدأ بتركيب رول جديد بمسح رمز QR.';
   static const String logoutLabel = 'تسجيل خروج عامل الرولات';
+  static const String closedRollSnack = 'تم إغلاق الرول بنجاح';
 
   Future<void> _openScanScreen(BuildContext context) async {
     await Navigator.of(context).push<void>(
@@ -52,8 +64,44 @@ class RollWorkerHomeScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _openCloseFlow(
+    BuildContext context,
+    WidgetRef ref,
+    MountedRoll roll,
+  ) async {
+    // Reset any stale failure before opening so the new dialog starts clean.
+    ref
+        .read(previousRollResolutionControllerProvider(shiftLineId).notifier)
+        .clearError();
+
+    final ClosePreviousRollAction? action = await showClosePreviousRollDialog(
+      context,
+    );
+    if (action == null || !context.mounted) return;
+
+    switch (action) {
+      case ClosePreviousRollAction.fullConsume:
+        await showFullConsumeConfirmDialog(context, shiftLineId: shiftLineId);
+      case ClosePreviousRollAction.returnRemaining:
+        await showReturnRemainingDialog(
+          context,
+          shiftLineId: shiftLineId,
+          maxAllowedKg: roll.lastKnownWeightKg,
+        );
+      case ClosePreviousRollAction.sendToGrinding:
+        await showGrindingDialog(
+          context,
+          shiftLineId: shiftLineId,
+          maxAllowedKg: roll.lastKnownWeightKg,
+        );
+    }
+  }
+
   void _logout(WidgetRef ref) {
     ref.read(rollScanControllerProvider(shiftLineId).notifier).reset();
+    ref
+        .read(previousRollResolutionControllerProvider(shiftLineId).notifier)
+        .reset();
     ref.read(rollWorkerAuthControllerProvider(shiftLineId).notifier).logout();
   }
 
@@ -61,6 +109,25 @@ class RollWorkerHomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final RollScanState scanState = ref.watch(
       rollScanControllerProvider(shiftLineId),
+    );
+    final PreviousRollResolutionState resolutionState = ref.watch(
+      previousRollResolutionControllerProvider(shiftLineId),
+    );
+
+    // Surface a snackbar on every successful close.
+    ref.listen<PreviousRollResolutionState>(
+      previousRollResolutionControllerProvider(shiftLineId),
+      (prev, next) {
+        if (next is PreviousRollResolved && prev is! PreviousRollResolved) {
+          ScaffoldMessenger.maybeOf(context)
+            ?..hideCurrentSnackBar()
+            ..showSnackBar(
+              const SnackBar(
+                content: Text(RollWorkerHomeScreen.closedRollSnack),
+              ),
+            );
+        }
+      },
     );
 
     return AppScaffold(
@@ -71,8 +138,19 @@ class RollWorkerHomeScreen extends ConsumerWidget {
           _SessionCard(session: session),
           const SizedBox(height: 16),
           _MountSection(
+            shiftLineId: shiftLineId,
             scanState: scanState,
+            resolutionState: resolutionState,
             onMountTap: () => _openScanScreen(context),
+            onCloseTap: (MountedRoll roll) =>
+                _openCloseFlow(context, ref, roll),
+            onAcknowledgeResolved: () => ref
+                .read(
+                  previousRollResolutionControllerProvider(
+                    shiftLineId,
+                  ).notifier,
+                )
+                .acknowledge(),
           ),
           const SizedBox(height: 24),
           AppSecondaryButton(
@@ -152,20 +230,57 @@ class _SessionCard extends StatelessWidget {
 }
 
 class _MountSection extends StatelessWidget {
-  const _MountSection({required this.scanState, required this.onMountTap});
+  const _MountSection({
+    required this.shiftLineId,
+    required this.scanState,
+    required this.resolutionState,
+    required this.onMountTap,
+    required this.onCloseTap,
+    required this.onAcknowledgeResolved,
+  });
 
+  final int shiftLineId;
   final RollScanState scanState;
+  final PreviousRollResolutionState resolutionState;
   final VoidCallback onMountTap;
+  final ValueChanged<MountedRoll> onCloseTap;
+  final VoidCallback onAcknowledgeResolved;
 
   @override
   Widget build(BuildContext context) {
-    return switch (scanState) {
-      RollScanMounted(:final roll) => MountCard(roll: roll),
-      RollScanFailureState(:final previous) when previous != null => MountCard(
-        roll: previous,
-      ),
-      _ => _EmptyMountCard(onTap: onMountTap),
+    // After a successful close, the summary takes precedence over any
+    // residual scan state until the worker dismisses it.
+    if (resolutionState is PreviousRollResolved) {
+      final PreviousRollResolution resolution =
+          (resolutionState as PreviousRollResolved).resolution;
+      return ClosedRollSummaryCard(
+        resolution: resolution,
+        onAcknowledge: onAcknowledgeResolved,
+      );
+    }
+
+    final MountedRoll? roll = switch (scanState) {
+      RollScanMounted(:final roll) => roll,
+      RollScanFailureState(:final previous) => previous,
+      _ => null,
     };
+
+    if (roll == null) {
+      return _EmptyMountCard(onTap: onMountTap);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        MountCard(roll: roll),
+        const SizedBox(height: 12),
+        AppPrimaryButton.accent(
+          label: RollWorkerHomeScreen.closePreviousRoll,
+          icon: Icons.archive_outlined,
+          onPressed: () => onCloseTap(roll),
+        ),
+      ],
+    );
   }
 }
 
