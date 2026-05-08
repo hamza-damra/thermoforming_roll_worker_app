@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/widgets/app_scaffold.dart';
+import '../features/home/presentation/screens/roll_worker_home_screen.dart';
 import '../features/roll_worker_auth/presentation/controllers/roll_worker_auth_controller.dart';
 import '../features/roll_worker_auth/presentation/controllers/roll_worker_auth_state.dart';
-import '../features/roll_worker_auth/presentation/screens/authenticated_home_placeholder.dart';
 import '../features/roll_worker_auth/presentation/screens/pin_screen.dart';
 import '../features/shift_line/presentation/controllers/selected_shift_line_provider.dart';
 import '../features/shift_line/presentation/screens/waiting_for_line_screen.dart';
@@ -105,11 +105,10 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
     }
 
     return switch (authState) {
-      RollWorkerAuthAuthenticated(:final session) =>
-        AuthenticatedHomePlaceholder(
-          shiftLineId: shiftLineId,
-          session: session,
-        ),
+      RollWorkerAuthAuthenticated(:final session) => RollWorkerHomeScreen(
+        shiftLineId: shiftLineId,
+        session: session,
+      ),
       RollWorkerAuthInitial() ||
       RollWorkerAuthChecking() => const _CheckingScaffold(),
       RollWorkerAuthUnauthenticated() ||

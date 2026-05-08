@@ -1,0 +1,290 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
+import 'package:thermoforming_roll_worker/core/errors/error_code.dart';
+import 'package:thermoforming_roll_worker/features/roll_scan/data/roll_scan_providers.dart';
+import 'package:thermoforming_roll_worker/features/roll_scan/domain/entities/mounted_roll.dart';
+import 'package:thermoforming_roll_worker/features/roll_scan/domain/roll_scan_repository.dart';
+import 'package:thermoforming_roll_worker/features/roll_scan/presentation/controllers/roll_scan_controller.dart';
+import 'package:thermoforming_roll_worker/features/roll_scan/presentation/controllers/roll_scan_state.dart';
+import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_providers.dart';
+import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/roll_worker_auth_repository.dart';
+import 'package:thermoforming_roll_worker/features/shift_line/presentation/controllers/selected_shift_line_provider.dart';
+
+class _MockScanRepo extends Mock implements RollScanRepository {}
+
+class _MockAuthRepo extends Mock implements RollWorkerAuthRepository {}
+
+const int kShiftLineId = 800;
+
+MountedRoll _mounted({String id = '777000000001'}) => MountedRoll(
+  rollId: 1,
+  generatedRollId: id,
+  rollTypeId: 70,
+  rollTypeRollCode: 'TT-1S B250 White',
+  rollTypeDisplayName: 'TT-1S B250',
+  colorName: 'White',
+  productTypeId: 5,
+  productTypeName: 'أحمر',
+  consumptionItemId: 5000,
+  activeSegmentId: 6000,
+  state: 'IN_CONSUMPTION',
+  lastKnownWeightKg: 250.0,
+);
+
+class _StaticShiftLineNotifier extends SelectedShiftLineNotifier {
+  _StaticShiftLineNotifier(this.initial);
+  final int initial;
+
+  @override
+  int? build() => initial;
+}
+
+ProviderContainer _container({
+  required RollScanRepository scanRepo,
+  RollWorkerAuthRepository? authRepo,
+}) {
+  final c = ProviderContainer(
+    overrides: <Override>[
+      rollScanRepositoryProvider.overrideWithValue(scanRepo),
+      if (authRepo != null)
+        rollWorkerAuthRepositoryProvider.overrideWithValue(authRepo),
+      selectedShiftLineIdProvider.overrideWith(
+        () => _StaticShiftLineNotifier(kShiftLineId),
+      ),
+    ],
+  );
+  addTearDown(c.dispose);
+  return c;
+}
+
+void main() {
+  group('RollScanController.isValidGeneratedRollId', () {
+    test('accepts exactly 12 digits', () {
+      expect(RollScanController.isValidGeneratedRollId('777000000001'), isTrue);
+    });
+
+    test('rejects non-12-digit input', () {
+      expect(RollScanController.isValidGeneratedRollId(''), isFalse);
+      expect(RollScanController.isValidGeneratedRollId('12345678901'), isFalse);
+      expect(
+        RollScanController.isValidGeneratedRollId('1234567890123'),
+        isFalse,
+      );
+      expect(
+        RollScanController.isValidGeneratedRollId('77700000000a'),
+        isFalse,
+      );
+    });
+  });
+
+  group('RollScanController.mountRoll', () {
+    test(
+      'invalid generatedRollId surfaces BusinessFailure(rollNotFound) without calling repo',
+      () async {
+        final scanRepo = _MockScanRepo();
+        final container = _container(scanRepo: scanRepo);
+
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('not-12-digits');
+
+        final state = container.read(rollScanControllerProvider(kShiftLineId));
+        expect(state, isA<RollScanFailureState>());
+        expect(
+          ((state as RollScanFailureState).failure as BusinessFailure).code,
+          ErrorCode.rollNotFound,
+        );
+        verifyNever(
+          () => scanRepo.mountRoll(
+            shiftLineId: any<int>(named: 'shiftLineId'),
+            generatedRollId: any<String>(named: 'generatedRollId'),
+          ),
+        );
+      },
+    );
+
+    test('on success transitions to RollScanMounted', () async {
+      final scanRepo = _MockScanRepo();
+      when(
+        () => scanRepo.mountRoll(
+          shiftLineId: kShiftLineId,
+          generatedRollId: '777000000001',
+        ),
+      ).thenAnswer((_) async => RollScanSuccess(_mounted()));
+      final container = _container(scanRepo: scanRepo);
+
+      await container
+          .read(rollScanControllerProvider(kShiftLineId).notifier)
+          .mountRoll('777000000001');
+
+      final state = container.read(rollScanControllerProvider(kShiftLineId));
+      expect(state, isA<RollScanMounted>());
+      expect((state as RollScanMounted).roll.generatedRollId, '777000000001');
+    });
+
+    test(
+      'ROLL_NOT_FOUND surfaces inline failure and preserves previous mount',
+      () async {
+        final scanRepo = _MockScanRepo();
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000001',
+          ),
+        ).thenAnswer((_) async => RollScanSuccess(_mounted()));
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000099',
+          ),
+        ).thenAnswer(
+          (_) async => const RollScanFailure(
+            BusinessFailure(code: ErrorCode.rollNotFound),
+          ),
+        );
+        final container = _container(scanRepo: scanRepo);
+
+        // First, get a mount.
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000001');
+        // Then a failed second attempt.
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000099');
+
+        final state = container.read(rollScanControllerProvider(kShiftLineId));
+        expect(state, isA<RollScanFailureState>());
+        final failureState = state as RollScanFailureState;
+        expect(failureState.previous?.generatedRollId, '777000000001');
+        expect(
+          (failureState.failure as BusinessFailure).code,
+          ErrorCode.rollNotFound,
+        );
+      },
+    );
+
+    test(
+      'SESSION_REQUIRED triggers auth.notifySessionLost and keeps inline failure',
+      () async {
+        final scanRepo = _MockScanRepo();
+        final authRepo = _MockAuthRepo();
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000001',
+          ),
+        ).thenAnswer(
+          (_) async => const RollScanFailure(
+            BusinessFailure(code: ErrorCode.rollWorkerSessionRequired),
+          ),
+        );
+        when(
+          () => authRepo.clearStoredToken(kShiftLineId),
+        ).thenAnswer((_) async {});
+        final container = _container(scanRepo: scanRepo, authRepo: authRepo);
+
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000001');
+
+        verify(() => authRepo.clearStoredToken(kShiftLineId)).called(1);
+      },
+    );
+
+    test(
+      'SHIFT_LINE_NOT_ACTIVE clears selectedShiftLineId via the provider',
+      () async {
+        final scanRepo = _MockScanRepo();
+        final authRepo = _MockAuthRepo();
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000001',
+          ),
+        ).thenAnswer(
+          (_) async => const RollScanFailure(
+            BusinessFailure(code: ErrorCode.thermoformingShiftLineNotActive),
+          ),
+        );
+        when(
+          () => authRepo.clearStoredToken(kShiftLineId),
+        ).thenAnswer((_) async {});
+        final container = _container(scanRepo: scanRepo, authRepo: authRepo);
+
+        // Sanity: initially set.
+        expect(container.read(selectedShiftLineIdProvider), kShiftLineId);
+
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000001');
+
+        expect(container.read(selectedShiftLineIdProvider), isNull);
+      },
+    );
+
+    test('clearError restores previously-mounted state when present', () async {
+      final scanRepo = _MockScanRepo();
+      when(
+        () => scanRepo.mountRoll(
+          shiftLineId: kShiftLineId,
+          generatedRollId: '777000000001',
+        ),
+      ).thenAnswer((_) async => RollScanSuccess(_mounted()));
+      when(
+        () => scanRepo.mountRoll(
+          shiftLineId: kShiftLineId,
+          generatedRollId: '777000000099',
+        ),
+      ).thenAnswer(
+        (_) async =>
+            const RollScanFailure(BusinessFailure(code: ErrorCode.rollBlocked)),
+      );
+      final container = _container(scanRepo: scanRepo);
+
+      await container
+          .read(rollScanControllerProvider(kShiftLineId).notifier)
+          .mountRoll('777000000001');
+      await container
+          .read(rollScanControllerProvider(kShiftLineId).notifier)
+          .mountRoll('777000000099');
+
+      expect(
+        container.read(rollScanControllerProvider(kShiftLineId)),
+        isA<RollScanFailureState>(),
+      );
+
+      container
+          .read(rollScanControllerProvider(kShiftLineId).notifier)
+          .clearError();
+
+      expect(
+        container.read(rollScanControllerProvider(kShiftLineId)),
+        isA<RollScanMounted>(),
+      );
+    });
+
+    test('reset moves state to Idle (used on logout)', () async {
+      final scanRepo = _MockScanRepo();
+      when(
+        () => scanRepo.mountRoll(
+          shiftLineId: kShiftLineId,
+          generatedRollId: '777000000001',
+        ),
+      ).thenAnswer((_) async => RollScanSuccess(_mounted()));
+      final container = _container(scanRepo: scanRepo);
+
+      await container
+          .read(rollScanControllerProvider(kShiftLineId).notifier)
+          .mountRoll('777000000001');
+      container.read(rollScanControllerProvider(kShiftLineId).notifier).reset();
+
+      expect(
+        container.read(rollScanControllerProvider(kShiftLineId)),
+        isA<RollScanIdle>(),
+      );
+    });
+  });
+}
