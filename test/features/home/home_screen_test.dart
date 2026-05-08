@@ -135,8 +135,81 @@ void main() {
       expect(find.text('أحمر 20 كغ'), findsOneWidget);
       expect(find.text('TT-1S B250'), findsOneWidget);
       expect(find.text('250.000 كغ'), findsOneWidget);
-      // CTA is hidden once a roll is mounted.
+      // Mount-CTA is hidden once a roll is mounted; close + product-switch
+      // CTAs appear instead.
       expect(find.text('تركيب رول جديد'), findsNothing);
+      expect(find.text('إغلاق الرول السابق'), findsOneWidget);
+      expect(find.text('تغيير المنتج'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'tapping "تغيير المنتج" routes to the product-switch blocked screen',
+    (WidgetTester tester) async {
+      final scanRepo = _MockScanRepo();
+      final authRepo = _MockAuthRepo();
+      when(
+        () => scanRepo.mountRoll(
+          shiftLineId: kShiftLineId,
+          generatedRollId: '777000000001',
+        ),
+      ).thenAnswer((_) async => RollScanSuccess(_mounted()));
+
+      late ProviderContainer container;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            rollScanRepositoryProvider.overrideWithValue(scanRepo),
+            rollWorkerAuthRepositoryProvider.overrideWithValue(authRepo),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            builder: (context, child) => Directionality(
+              textDirection: TextDirection.rtl,
+              child: Builder(
+                builder: (context) {
+                  container = ProviderScope.containerOf(context);
+                  return child ?? const SizedBox.shrink();
+                },
+              ),
+            ),
+            home: RollWorkerHomeScreen(
+              shiftLineId: kShiftLineId,
+              session: _session(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await container
+          .read(rollScanControllerProvider(kShiftLineId).notifier)
+          .mountRoll('777000000001');
+      await tester.pumpAndSettle();
+
+      // The CTA may sit below the fold inside the home ListView in the
+      // test viewport — scroll it into view before tapping.
+      await tester.ensureVisible(find.text('تغيير المنتج'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('تغيير المنتج'));
+      await tester.pumpAndSettle();
+
+      // Blocked-screen content is now visible.
+      expect(find.text('تغيير المنتج غير متاح حاليًا'), findsOneWidget);
+      expect(
+        find.text(
+          'بانتظار دعم الخادم لعرض المنتجات المتوافقة مع الرول الحالي.',
+        ),
+        findsOneWidget,
+      );
+      // No scan-roll API call is made by Stage 7 navigation (sanity:
+      // we only mounted, then routed to the blocked screen).
+      verify(
+        () => scanRepo.mountRoll(
+          shiftLineId: kShiftLineId,
+          generatedRollId: '777000000001',
+        ),
+      ).called(1);
     },
   );
 }

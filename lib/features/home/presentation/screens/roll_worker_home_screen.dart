@@ -16,6 +16,7 @@ import '../../../previous_roll/presentation/widgets/closed_roll_summary_card.dar
 import '../../../previous_roll/presentation/widgets/full_consume_confirm_dialog.dart';
 import '../../../previous_roll/presentation/widgets/grinding_dialog.dart';
 import '../../../previous_roll/presentation/widgets/return_remaining_dialog.dart';
+import '../../../product_switch/presentation/screens/product_switch_blocked_screen.dart';
 import '../../../roll_scan/domain/entities/mounted_roll.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_controller.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_state.dart';
@@ -51,6 +52,7 @@ class RollWorkerHomeScreen extends ConsumerWidget {
   static const String sessionStarted = 'بدأت الجلسة';
   static const String mountNewRoll = 'تركيب رول جديد';
   static const String closePreviousRoll = 'إغلاق الرول السابق';
+  static const String productSwitch = 'تغيير المنتج';
   static const String emptyMountHeading = 'لا يوجد رول مركّب حاليًا';
   static const String emptyMountDetail = 'ابدأ بتركيب رول جديد بمسح رمز QR.';
   static const String logoutLabel = 'تسجيل خروج عامل الرولات';
@@ -95,6 +97,19 @@ class RollWorkerHomeScreen extends ConsumerWidget {
           maxAllowedKg: roll.lastKnownWeightKg,
         );
     }
+  }
+
+  Future<void> _openProductSwitch(
+    BuildContext context,
+    MountedRoll roll,
+  ) async {
+    // Stage 7: backend gap. The route opens a passive blocked screen with
+    // no submit path that can reach the backend.
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ProductSwitchBlockedScreen(mountedRoll: roll),
+      ),
+    );
   }
 
   void _logout(WidgetRef ref) {
@@ -144,6 +159,8 @@ class RollWorkerHomeScreen extends ConsumerWidget {
             onMountTap: () => _openScanScreen(context),
             onCloseTap: (MountedRoll roll) =>
                 _openCloseFlow(context, ref, roll),
+            onProductSwitchTap: (MountedRoll roll) =>
+                _openProductSwitch(context, roll),
             onAcknowledgeResolved: () => ref
                 .read(
                   previousRollResolutionControllerProvider(
@@ -236,6 +253,7 @@ class _MountSection extends StatelessWidget {
     required this.resolutionState,
     required this.onMountTap,
     required this.onCloseTap,
+    required this.onProductSwitchTap,
     required this.onAcknowledgeResolved,
   });
 
@@ -244,6 +262,7 @@ class _MountSection extends StatelessWidget {
   final PreviousRollResolutionState resolutionState;
   final VoidCallback onMountTap;
   final ValueChanged<MountedRoll> onCloseTap;
+  final ValueChanged<MountedRoll> onProductSwitchTap;
   final VoidCallback onAcknowledgeResolved;
 
   @override
@@ -278,6 +297,12 @@ class _MountSection extends StatelessWidget {
           label: RollWorkerHomeScreen.closePreviousRoll,
           icon: Icons.archive_outlined,
           onPressed: () => onCloseTap(roll),
+        ),
+        const SizedBox(height: 12),
+        AppSecondaryButton(
+          label: RollWorkerHomeScreen.productSwitch,
+          icon: Icons.swap_horiz_rounded,
+          onPressed: () => onProductSwitchTap(roll),
         ),
       ],
     );
