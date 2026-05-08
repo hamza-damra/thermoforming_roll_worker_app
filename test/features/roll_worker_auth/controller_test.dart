@@ -61,24 +61,92 @@ void main() {
       );
     });
 
-    test('SESSION_REQUIRED → Unauthenticated (no error surfaced)', () async {
+    test(
+      'SESSION_REQUIRED on first discovery → Unauthenticated, no silent-loss flag',
+      () async {
+        final repo = _MockRepo();
+        when(() => repo.getCurrentSession(kShiftLineId)).thenAnswer(
+          (_) async => const RollWorkerAuthFailure(
+            BusinessFailure(code: ErrorCode.rollWorkerSessionRequired),
+          ),
+        );
+        final container = _container(repo);
+
+        await container
+            .read(rollWorkerAuthControllerProvider(kShiftLineId).notifier)
+            .checkSession();
+
+        final state = container.read(
+          rollWorkerAuthControllerProvider(kShiftLineId),
+        );
+        expect(state, isA<RollWorkerAuthUnauthenticated>());
+        final unauth = state as RollWorkerAuthUnauthenticated;
+        expect(unauth.lastFailure, isNull);
+        expect(
+          unauth.silentSessionLoss,
+          isFalse,
+          reason: 'fresh first-launch discovery is not a session loss',
+        );
+      },
+    );
+
+    test(
+      'SESSION_REQUIRED after Authenticated → silent-loss flag set (cascade)',
+      () async {
+        final repo = _MockRepo();
+        // 1) seed Authenticated via login.
+        when(
+          () => repo.login(shiftLineId: kShiftLineId, pin: '1234'),
+        ).thenAnswer((_) async => RollWorkerAuthSuccess(_activeSession()));
+        // 2) re-check returns SESSION_REQUIRED (line ended elsewhere).
+        when(() => repo.getCurrentSession(kShiftLineId)).thenAnswer(
+          (_) async => const RollWorkerAuthFailure(
+            BusinessFailure(code: ErrorCode.rollWorkerSessionRequired),
+          ),
+        );
+        final container = _container(repo);
+
+        await container
+            .read(rollWorkerAuthControllerProvider(kShiftLineId).notifier)
+            .login('1234');
+        expect(
+          container.read(rollWorkerAuthControllerProvider(kShiftLineId)),
+          isA<RollWorkerAuthAuthenticated>(),
+        );
+
+        await container
+            .read(rollWorkerAuthControllerProvider(kShiftLineId).notifier)
+            .checkSession();
+
+        final state = container.read(
+          rollWorkerAuthControllerProvider(kShiftLineId),
+        );
+        expect(state, isA<RollWorkerAuthUnauthenticated>());
+        expect(
+          (state as RollWorkerAuthUnauthenticated).silentSessionLoss,
+          isTrue,
+        );
+      },
+    );
+
+    test('notifySessionLost sets silentSessionLoss=true', () async {
       final repo = _MockRepo();
-      when(() => repo.getCurrentSession(kShiftLineId)).thenAnswer(
-        (_) async => const RollWorkerAuthFailure(
-          BusinessFailure(code: ErrorCode.rollWorkerSessionRequired),
-        ),
-      );
+      when(() => repo.clearStoredToken(kShiftLineId)).thenAnswer((_) async {});
       final container = _container(repo);
 
       await container
           .read(rollWorkerAuthControllerProvider(kShiftLineId).notifier)
-          .checkSession();
+          .notifySessionLost();
 
       final state = container.read(
         rollWorkerAuthControllerProvider(kShiftLineId),
       );
       expect(state, isA<RollWorkerAuthUnauthenticated>());
-      expect((state as RollWorkerAuthUnauthenticated).lastFailure, isNull);
+      expect(
+        (state as RollWorkerAuthUnauthenticated).silentSessionLoss,
+        isTrue,
+      );
+      verify(() => repo.clearStoredToken(kShiftLineId)).called(1);
     });
 
     test('SHIFT_LINE_NOT_ACTIVE → LineGone', () async {
@@ -207,9 +275,15 @@ void main() {
           .read(rollWorkerAuthControllerProvider(kShiftLineId).notifier)
           .logout();
 
+      final state = container.read(
+        rollWorkerAuthControllerProvider(kShiftLineId),
+      );
+      expect(state, isA<RollWorkerAuthUnauthenticated>());
+      // A deliberate logout must NOT carry the silent-loss flag (the
+      // bootstrap snackbar discriminates on it).
       expect(
-        container.read(rollWorkerAuthControllerProvider(kShiftLineId)),
-        isA<RollWorkerAuthUnauthenticated>(),
+        (state as RollWorkerAuthUnauthenticated).silentSessionLoss,
+        isFalse,
       );
       verify(() => repo.logout(kShiftLineId)).called(1);
     });

@@ -23,7 +23,10 @@ void main() {
           child: const RollWorkerApp(),
         ),
       );
-      await tester.pumpAndSettle();
+      // The waiting screen runs a passive heartbeat indicator that never
+      // settles. Use bounded pumps instead of pumpAndSettle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('تطبيق عامل الرولات'), findsWidgets);
 
@@ -45,7 +48,10 @@ void main() {
           child: const RollWorkerApp(),
         ),
       );
-      await tester.pumpAndSettle();
+      // The waiting screen runs a passive heartbeat indicator that never
+      // settles. Use bounded pumps instead of pumpAndSettle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text(AppConfig.missingConfigMessage), findsOneWidget);
     },

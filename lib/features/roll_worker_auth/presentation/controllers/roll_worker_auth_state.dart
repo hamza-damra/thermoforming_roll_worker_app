@@ -25,10 +25,20 @@ class RollWorkerAuthChecking extends RollWorkerAuthState {
 ///
 /// [lastFailure] is set when the user's previous login attempt failed, so
 /// the PIN screen can render an inline Arabic error.
+///
+/// [silentSessionLoss] is `true` when this state was reached via a silent
+/// cascade — i.e. the discovery `GET /roll-worker-session/current` returned
+/// `ROLL_WORKER_SESSION_REQUIRED` while the worker had been authenticated.
+/// The bootstrap screen surfaces a snackbar for this case but NOT for a
+/// deliberate logout (where the flag is `false`).
 class RollWorkerAuthUnauthenticated extends RollWorkerAuthState {
-  const RollWorkerAuthUnauthenticated({this.lastFailure});
+  const RollWorkerAuthUnauthenticated({
+    this.lastFailure,
+    this.silentSessionLoss = false,
+  });
 
   final AppFailure? lastFailure;
+  final bool silentSessionLoss;
 }
 
 /// Login request in flight. PIN button shows a spinner; further taps are

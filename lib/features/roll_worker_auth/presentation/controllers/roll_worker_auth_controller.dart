@@ -23,6 +23,7 @@ class RollWorkerAuthController
   /// Wraps `GET /roll-worker-session/current` for [_shiftLineId].
   Future<void> checkSession() async {
     if (state is RollWorkerAuthAuthenticating) return;
+    final bool wasAuthenticated = state is RollWorkerAuthAuthenticated;
     state = const RollWorkerAuthChecking();
     final RollWorkerAuthResult result = await _repo.getCurrentSession(
       _shiftLineId,
@@ -33,10 +34,12 @@ class RollWorkerAuthController
           state = RollWorkerAuthAuthenticated(session);
         } else {
           await _repo.clearStoredToken(_shiftLineId);
-          state = const RollWorkerAuthUnauthenticated();
+          state = RollWorkerAuthUnauthenticated(
+            silentSessionLoss: wasAuthenticated,
+          );
         }
       case RollWorkerAuthFailure(:final failure):
-        state = _stateFromFailure(failure);
+        state = _stateFromFailure(failure, wasAuthenticated: wasAuthenticated);
     }
   }
 
@@ -71,25 +74,33 @@ class RollWorkerAuthController
 
   /// Used by other features (Stage 5+) to react to mid-flow
   /// `ROLL_WORKER_SESSION_REQUIRED`: clear the token and surface the PIN
-  /// screen on the next frame.
+  /// screen on the next frame. The silent-loss flag drives the cascade
+  /// snackbar in [BootstrapScreen].
   Future<void> notifySessionLost() async {
     await _repo.clearStoredToken(_shiftLineId);
-    state = const RollWorkerAuthUnauthenticated();
+    state = const RollWorkerAuthUnauthenticated(silentSessionLoss: true);
   }
 
   RollWorkerAuthState _stateFromFailure(
     AppFailure failure, {
     bool fromLogin = false,
+    bool wasAuthenticated = false,
   }) {
     if (failure is BusinessFailure) {
       switch (failure.code) {
         case ErrorCode.thermoformingShiftLineNotFound:
         case ErrorCode.thermoformingShiftLineNotActive:
+          // Cascade-on-end: surface the snackbar via LineGone regardless
+          // of whether the worker was previously authenticated.
           return const RollWorkerAuthLineGone();
         case ErrorCode.rollWorkerSessionRequired:
-          // Surface as plain unauthenticated — no inline error needed when
-          // we just discovered there's no session.
-          return const RollWorkerAuthUnauthenticated();
+          // Silent unauthenticated — flag the silent-loss only when we had
+          // an active session before, so a deliberate logout (which never
+          // hits this branch from a checking state) and a fresh first-launch
+          // discovery don't trigger the cascade snackbar.
+          return RollWorkerAuthUnauthenticated(
+            silentSessionLoss: wasAuthenticated,
+          );
         case ErrorCode.rollWorkerNotAllowed:
         case ErrorCode.operatorPinInvalid:
         case ErrorCode.operatorPinLocked:
