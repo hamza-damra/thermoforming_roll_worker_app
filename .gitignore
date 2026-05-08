@@ -1,0 +1,76 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Android local files / signing material — never commit
+android/.gradle/
+android/local.properties
+android/key.properties
+android/app/google-services.json
+*.jks
+*.keystore
+
+# iOS local artifacts
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GoogleService-Info.plist
+
+# Environment / secret files — never commit; secrets come from --dart-define
+.env
+.env.*
+!.env.example
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Generated code (build_runner outputs are committed-in-tree only when stable;
+# while the project is being scaffolded, regenerate locally)
+# (kept committed by default; uncomment if you switch to ignored generated files)
+# **/*.g.dart
+# **/*.freezed.dart
