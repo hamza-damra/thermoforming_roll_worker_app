@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_card.dart';
+import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/info_row.dart';
 import '../../domain/entities/previous_roll_resolution.dart';
 
@@ -10,18 +11,34 @@ import '../../domain/entities/previous_roll_resolution.dart';
 /// screen for the brief window between a successful close and the next
 /// mount (or worker dismissing the summary).
 ///
-/// Stage 6 only renders the summary; the reprint button arrives in
-/// Stage 8. The `reprintAvailable` flag is intentionally tracked here so
-/// downstream stages can light up the button without further state churn.
+/// Stage 8 wires the actual reprint flow:
+///   - Primary: when [resolution.reprintAvailable] is true and [onReprint]
+///     is non-null, an "إعادة طباعة الليبل" button fires the full
+///     fetch-and-physical-print pipeline immediately (no preview gate).
+///   - Secondary: a small "معاينة الليبل" link below the primary button
+///     opens the on-screen preview screen via [onPreview]. Optional —
+///     hidden when [onPreview] is null.
 class ClosedRollSummaryCard extends StatelessWidget {
   const ClosedRollSummaryCard({
     super.key,
     required this.resolution,
     required this.onAcknowledge,
+    this.onReprint,
+    this.onPreview,
   });
 
   final PreviousRollResolution resolution;
   final VoidCallback onAcknowledge;
+
+  /// Called when the worker taps the primary reprint button. Wired by
+  /// the home screen to fire the full fetch + physical print pipeline.
+  /// Hidden when null or when [resolution.reprintAvailable] is false.
+  final ValueChanged<String>? onReprint;
+
+  /// Called when the worker taps the secondary "معاينة الليبل" link.
+  /// Wired by the home screen to push the preview screen. Hidden when
+  /// null or when [resolution.reprintAvailable] is false.
+  final ValueChanged<String>? onPreview;
 
   static const String _heading = 'تم إغلاق الرول';
   static const String _generatedRollId = 'رقم الرول';
@@ -30,6 +47,8 @@ class ClosedRollSummaryCard extends StatelessWidget {
   static const String _remaining = 'الوزن المتبقي';
   static const String _ackLabel = 'حسنًا';
   static const String _reprintAvailable = 'يمكن إعادة طباعة الليبل';
+  static const String _reprintLabel = 'إعادة طباعة الليبل';
+  static const String _previewLabel = 'معاينة الليبل';
 
   String _finalStateLabel(PreviousRollFinalState state) {
     return switch (state) {
@@ -122,6 +141,24 @@ class ClosedRollSummaryCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (onReprint != null) ...[
+              const SizedBox(height: 12),
+              AppPrimaryButton(
+                label: _reprintLabel,
+                icon: Icons.print_rounded,
+                onPressed: () => onReprint!(resolution.generatedRollId),
+              ),
+            ],
+            if (onPreview != null) ...[
+              const SizedBox(height: 4),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () => onPreview!(resolution.generatedRollId),
+                  icon: const Icon(Icons.visibility_outlined, size: 18),
+                  label: const Text(_previewLabel),
+                ),
+              ),
+            ],
           ],
           const SizedBox(height: 16),
           OutlinedButton.icon(

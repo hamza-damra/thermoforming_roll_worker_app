@@ -14,8 +14,14 @@ import '../../../previous_roll/presentation/controllers/previous_roll_resolution
 import '../../../previous_roll/presentation/widgets/close_previous_roll_dialog.dart';
 import '../../../previous_roll/presentation/widgets/closed_roll_summary_card.dart';
 import '../../../previous_roll/presentation/widgets/full_consume_confirm_dialog.dart';
+import '../../../label_reprint/presentation/controllers/label_reprint_controller.dart';
+import '../../../label_reprint/presentation/screens/label_preview_screen.dart';
+import '../../../label_reprint/presentation/widgets/print_in_progress_dialog.dart';
 import '../../../previous_roll/presentation/widgets/grinding_dialog.dart';
 import '../../../previous_roll/presentation/widgets/return_remaining_dialog.dart';
+import '../../../printer/data/printer_providers.dart';
+import '../../../printer/domain/entities/printer_config.dart';
+import '../../../printer/presentation/screens/printer_settings_screen.dart';
 import '../../../product_switch/presentation/screens/product_switch_blocked_screen.dart';
 import '../../../roll_scan/domain/entities/mounted_roll.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_controller.dart';
@@ -57,6 +63,7 @@ class RollWorkerHomeScreen extends ConsumerWidget {
   static const String emptyMountDetail = 'ابدأ بتركيب رول جديد بمسح رمز QR.';
   static const String logoutLabel = 'تسجيل خروج عامل الرولات';
   static const String closedRollSnack = 'تم إغلاق الرول بنجاح';
+  static const String printerSettingsTooltip = 'إعدادات الطباعة';
 
   Future<void> _openScanScreen(BuildContext context) async {
     await Navigator.of(context).push<void>(
@@ -112,11 +119,74 @@ class RollWorkerHomeScreen extends ConsumerWidget {
     );
   }
 
+  /// Primary reprint handler: tap "إعادة طباعة الليبل" → physical print.
+  ///
+  /// 1. If no default printer is configured, route to printer settings so
+  ///    the worker can add one. No backend call yet — the worker comes
+  ///    back and re-taps reprint.
+  /// 2. Otherwise, reset stale state, show the blocking
+  ///    [PrintInProgressDialog], and dispatch
+  ///    `LabelReprintController.reprint(rollId)` end-to-end (fetch + send).
+  Future<void> _onReprintTap(
+    BuildContext context,
+    WidgetRef ref,
+    String generatedRollId,
+  ) async {
+    final PrinterConfig? printer = ref
+        .read(printerRepositoryProvider)
+        .getDefault();
+    if (printer == null) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(builder: (_) => const PrinterSettingsScreen()),
+      );
+      return;
+    }
+
+    ref.read(labelReprintControllerProvider(shiftLineId).notifier).reset();
+    // Show the blocking dialog first so it observes every state
+    // transition, then kick off the pipeline.
+    final Future<void> dialog = PrintInProgressDialog.show(
+      context,
+      shiftLineId: shiftLineId,
+    );
+    // ignore: unawaited_futures
+    ref
+        .read(labelReprintControllerProvider(shiftLineId).notifier)
+        .reprint(generatedRollId);
+    await dialog;
+  }
+
+  /// Secondary, optional path. Opens the on-screen preview without
+  /// firing any physical print. The preview screen has its own print
+  /// button that routes through the same pipeline.
+  Future<void> _openLabelPreview(
+    BuildContext context,
+    WidgetRef ref,
+    String generatedRollId,
+  ) async {
+    ref.read(labelReprintControllerProvider(shiftLineId).notifier).reset();
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => LabelPreviewScreen(
+          shiftLineId: shiftLineId,
+          generatedRollId: generatedRollId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPrinterSettings(BuildContext context) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const PrinterSettingsScreen()),
+    );
+  }
+
   void _logout(WidgetRef ref) {
     ref.read(rollScanControllerProvider(shiftLineId).notifier).reset();
     ref
         .read(previousRollResolutionControllerProvider(shiftLineId).notifier)
         .reset();
+    ref.read(labelReprintControllerProvider(shiftLineId).notifier).reset();
     ref.read(rollWorkerAuthControllerProvider(shiftLineId).notifier).logout();
   }
 
@@ -147,6 +217,13 @@ class RollWorkerHomeScreen extends ConsumerWidget {
 
     return AppScaffold(
       title: title,
+      actions: <Widget>[
+        IconButton(
+          tooltip: printerSettingsTooltip,
+          onPressed: () => _openPrinterSettings(context),
+          icon: const Icon(Icons.print_rounded),
+        ),
+      ],
       body: ListView(
         children: [
           const SizedBox(height: 12),
@@ -161,6 +238,10 @@ class RollWorkerHomeScreen extends ConsumerWidget {
                 _openCloseFlow(context, ref, roll),
             onProductSwitchTap: (MountedRoll roll) =>
                 _openProductSwitch(context, roll),
+            onReprintTap: (String generatedRollId) =>
+                _onReprintTap(context, ref, generatedRollId),
+            onPreviewTap: (String generatedRollId) =>
+                _openLabelPreview(context, ref, generatedRollId),
             onAcknowledgeResolved: () => ref
                 .read(
                   previousRollResolutionControllerProvider(
@@ -254,6 +335,8 @@ class _MountSection extends StatelessWidget {
     required this.onMountTap,
     required this.onCloseTap,
     required this.onProductSwitchTap,
+    required this.onReprintTap,
+    required this.onPreviewTap,
     required this.onAcknowledgeResolved,
   });
 
@@ -263,6 +346,8 @@ class _MountSection extends StatelessWidget {
   final VoidCallback onMountTap;
   final ValueChanged<MountedRoll> onCloseTap;
   final ValueChanged<MountedRoll> onProductSwitchTap;
+  final ValueChanged<String> onReprintTap;
+  final ValueChanged<String> onPreviewTap;
   final VoidCallback onAcknowledgeResolved;
 
   @override
@@ -275,6 +360,8 @@ class _MountSection extends StatelessWidget {
       return ClosedRollSummaryCard(
         resolution: resolution,
         onAcknowledge: onAcknowledgeResolved,
+        onReprint: resolution.reprintAvailable ? onReprintTap : null,
+        onPreview: resolution.reprintAvailable ? onPreviewTap : null,
       );
     }
 

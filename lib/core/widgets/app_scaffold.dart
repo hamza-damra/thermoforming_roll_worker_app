@@ -30,8 +30,12 @@ class AppScaffold extends StatelessWidget {
           ? null
           : AppBar(title: Text(title!), actions: actions, leading: leading),
       body: Column(
-        children: [
-          ?banner,
+        children: <Widget>[
+          // Older analyzer (pulled in by hive_generator) doesn't accept the
+          // `?banner` null-aware element syntax, so use the conventional
+          // null-check spread.
+          // ignore: use_null_aware_elements
+          if (banner != null) banner!,
           Expanded(
             child: scrollable ? SingleChildScrollView(child: content) : content,
           ),
