@@ -1,45 +1,43 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// The shift-line the device is currently working against, or `null` when
-/// no line is selected.
+/// Picker-stage selection set: the shift-line ids the worker has currently
+/// ticked in the multi-select picker. Picker-stage state only — once the
+/// PIN flow succeeds, the active sessions live in
+/// `multiLineSessionRegistryProvider`.
 ///
-/// ### Production behavior
-///
-/// In production builds this provider stays `null` for as long as the
-/// backend has not shipped the active-shift-lines picker endpoint
-/// (requirements §7 / §24 gap #1 — `GET /shift-lines/active-options`).
-/// `WaitingForLineScreen` handles the `null` case as a safe blocked state.
-///
-/// There is intentionally **no** alternative path from `null` to a real
-/// shift-line in this stage: no manual entry, no build-time bypass flag,
-/// no hardcoded value, no debug long-press. The blocked state is the
-/// production-correct behavior until backend support exists.
-///
-/// ### Cascade-on-end
-///
-/// `BootstrapScreen` calls [SelectedShiftLineNotifier.clear] when the auth
-/// state transitions to `RollWorkerAuthLineGone`, dropping the worker back
-/// to the waiting screen. The same notifier method will be used by the
-/// (future) shift-line picker controller when the operator ends the line
-/// from another device.
-///
-/// ### Tests
-///
-/// Test scenarios that need a non-null shift-line should override this
-/// provider with a fixed id, e.g.
-/// `selectedShiftLineIdProvider.overrideWith(() => StaticNotifier(800))`.
-class SelectedShiftLineNotifier extends Notifier<int?> {
+/// Empty at launch and after a successful batch-start. Never persisted to
+/// disk.
+class PickerShiftLineSelectionNotifier extends Notifier<Set<int>> {
   @override
-  int? build() => null;
+  Set<int> build() => <int>{};
 
-  /// Called from the (future) shift-line picker once a line is chosen.
-  void select(int shiftLineId) => state = shiftLineId;
+  void toggle(int shiftLineId) {
+    final Set<int> next = <int>{...state};
+    if (!next.add(shiftLineId)) {
+      next.remove(shiftLineId);
+    }
+    state = next;
+  }
 
-  /// Cleared on cascade-on-end / shift-line ended elsewhere.
-  void clear() => state = null;
+  void add(int shiftLineId) {
+    if (state.contains(shiftLineId)) return;
+    state = <int>{...state, shiftLineId};
+  }
+
+  void remove(int shiftLineId) {
+    if (!state.contains(shiftLineId)) return;
+    state = <int>{...state}..remove(shiftLineId);
+  }
+
+  void replaceWith(Set<int> ids) {
+    state = <int>{...ids};
+  }
+
+  void clear() => state = <int>{};
 }
 
-final selectedShiftLineIdProvider =
-    NotifierProvider<SelectedShiftLineNotifier, int?>(
-      SelectedShiftLineNotifier.new,
+final NotifierProvider<PickerShiftLineSelectionNotifier, Set<int>>
+pickerShiftLineSelectionProvider =
+    NotifierProvider<PickerShiftLineSelectionNotifier, Set<int>>(
+      PickerShiftLineSelectionNotifier.new,
     );

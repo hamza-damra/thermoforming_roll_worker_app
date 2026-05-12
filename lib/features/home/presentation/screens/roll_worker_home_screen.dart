@@ -7,80 +7,107 @@ import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/app_secondary_button.dart';
-import '../../../../core/widgets/info_row.dart';
+import '../../../label_reprint/presentation/controllers/label_reprint_controller.dart';
+import '../../../label_reprint/presentation/screens/label_preview_screen.dart';
+import '../../../label_reprint/presentation/widgets/print_in_progress_dialog.dart';
 import '../../../previous_roll/domain/entities/previous_roll_resolution.dart';
 import '../../../previous_roll/presentation/controllers/previous_roll_resolution_controller.dart';
 import '../../../previous_roll/presentation/controllers/previous_roll_resolution_state.dart';
 import '../../../previous_roll/presentation/widgets/close_previous_roll_dialog.dart';
 import '../../../previous_roll/presentation/widgets/closed_roll_summary_card.dart';
 import '../../../previous_roll/presentation/widgets/full_consume_confirm_dialog.dart';
-import '../../../label_reprint/presentation/controllers/label_reprint_controller.dart';
-import '../../../label_reprint/presentation/screens/label_preview_screen.dart';
-import '../../../label_reprint/presentation/widgets/print_in_progress_dialog.dart';
 import '../../../previous_roll/presentation/widgets/grinding_dialog.dart';
 import '../../../previous_roll/presentation/widgets/return_remaining_dialog.dart';
 import '../../../printer/data/printer_providers.dart';
 import '../../../printer/domain/entities/printer_config.dart';
 import '../../../printer/presentation/screens/printer_settings_screen.dart';
 import '../../../product_switch/presentation/screens/product_switch_blocked_screen.dart';
-import '../../../roll_scan/domain/entities/mounted_roll.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_controller.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_state.dart';
 import '../../../roll_scan/presentation/screens/scan_roll_screen.dart';
-import '../../../roll_scan/presentation/widgets/mount_card.dart';
-import '../../../roll_worker_auth/domain/entities/roll_worker_session.dart';
-import '../../../roll_worker_auth/presentation/controllers/roll_worker_auth_controller.dart';
+import '../../domain/entities/shift_line_summary.dart';
+import '../controllers/shift_line_summary_controller.dart';
+import '../controllers/shift_line_summary_state.dart';
+import '../widgets/compact_line_header.dart';
+import '../widgets/compact_mounted_roll_card.dart';
+import '../widgets/summary_card.dart';
 
-/// Real Roll Worker home — replaces the Stage 3 placeholder.
+/// Per-line Roll Worker home screen.
 ///
-/// Surface:
-///   - Worker / line context card
-///   - Active mount card + close button when a roll is mounted
-///   - Closed-roll summary card immediately after a successful close
-///   - Empty mount CTA when nothing is mounted
-///   - Logout button
+/// Data comes from the backend summary endpoint — no local roll counts and
+/// no session card. The compact header + summary card + optional mounted-roll
+/// card are all driven by [ShiftLineSummaryController].
 ///
-/// Stage 7 will stub the product-switch entry; Stage 8 the reprint button.
-class RollWorkerHomeScreen extends ConsumerWidget {
+/// Navigation between lines is handled by the parent [MultiLineHomeShell]
+/// via a [NavigationBar] (≥2 lines) — this screen never renders chips.
+class RollWorkerHomeScreen extends ConsumerStatefulWidget {
   const RollWorkerHomeScreen({
     super.key,
     required this.shiftLineId,
-    required this.session,
+    this.lineIndex = 1,
+    this.standaloneScaffold = true,
+    this.headerActions,
   });
 
   final int shiftLineId;
-  final RollWorkerSession session;
+
+  /// 1-based position of this line in the active sessions list. Used as
+  /// the fallback label (`خط N`) while the summary is loading.
+  final int lineIndex;
+
+  /// When `true` (default, single-line mode) the screen wraps itself in an
+  /// [AppScaffold] with its own AppBar. When `false` (multi-line shell owns
+  /// the AppBar) only the body is rendered.
+  final bool standaloneScaffold;
+
+  /// Extra AppBar actions injected by the shell (printer icon, overflow menu).
+  final List<Widget>? headerActions;
 
   static const String title = 'تطبيق عامل الرولات';
-  static const String workerHeading = 'مرحبًا بك';
-  static const String thermoformingLine = 'خط التشكيل';
-  static const String palletizingLine = 'خط الطبليات المرتبط';
-  static const String sessionStarted = 'بدأت الجلسة';
-  static const String mountNewRoll = 'تركيب رول جديد';
+  static const String scanRoll = 'مسح رول';
   static const String closePreviousRoll = 'إغلاق الرول السابق';
   static const String productSwitch = 'تغيير المنتج';
   static const String emptyMountHeading = 'لا يوجد رول مركّب حاليًا';
   static const String emptyMountDetail = 'ابدأ بتركيب رول جديد بمسح رمز QR.';
-  static const String logoutLabel = 'تسجيل خروج عامل الرولات';
   static const String closedRollSnack = 'تم إغلاق الرول بنجاح';
   static const String printerSettingsTooltip = 'إعدادات الطباعة';
+
+  @override
+  ConsumerState<RollWorkerHomeScreen> createState() =>
+      _RollWorkerHomeScreenState();
+}
+
+class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref
+            .read(
+              shiftLineSummaryControllerProvider(widget.shiftLineId).notifier,
+            )
+            .load();
+      }
+    });
+  }
+
+  int get _shiftLineId => widget.shiftLineId;
 
   Future<void> _openScanScreen(BuildContext context) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => ScanRollScreen(shiftLineId: shiftLineId),
+        builder: (_) => ScanRollScreen(shiftLineId: _shiftLineId),
       ),
     );
   }
 
   Future<void> _openCloseFlow(
     BuildContext context,
-    WidgetRef ref,
-    MountedRoll roll,
+    SummaryMountedRoll roll,
   ) async {
-    // Reset any stale failure before opening so the new dialog starts clean.
     ref
-        .read(previousRollResolutionControllerProvider(shiftLineId).notifier)
+        .read(previousRollResolutionControllerProvider(_shiftLineId).notifier)
         .clearError();
 
     final ClosePreviousRollAction? action = await showClosePreviousRollDialog(
@@ -90,46 +117,32 @@ class RollWorkerHomeScreen extends ConsumerWidget {
 
     switch (action) {
       case ClosePreviousRollAction.fullConsume:
-        await showFullConsumeConfirmDialog(context, shiftLineId: shiftLineId);
+        await showFullConsumeConfirmDialog(context, shiftLineId: _shiftLineId);
       case ClosePreviousRollAction.returnRemaining:
         await showReturnRemainingDialog(
           context,
-          shiftLineId: shiftLineId,
+          shiftLineId: _shiftLineId,
           maxAllowedKg: roll.lastKnownWeightKg,
         );
       case ClosePreviousRollAction.sendToGrinding:
         await showGrindingDialog(
           context,
-          shiftLineId: shiftLineId,
+          shiftLineId: _shiftLineId,
           maxAllowedKg: roll.lastKnownWeightKg,
         );
     }
   }
 
-  Future<void> _openProductSwitch(
-    BuildContext context,
-    MountedRoll roll,
-  ) async {
-    // Stage 7: backend gap. The route opens a passive blocked screen with
-    // no submit path that can reach the backend.
+  Future<void> _openProductSwitch(BuildContext context) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => ProductSwitchBlockedScreen(mountedRoll: roll),
+        builder: (_) => const ProductSwitchBlockedScreen(mountedRoll: null),
       ),
     );
   }
 
-  /// Primary reprint handler: tap "إعادة طباعة الليبل" → physical print.
-  ///
-  /// 1. If no default printer is configured, route to printer settings so
-  ///    the worker can add one. No backend call yet — the worker comes
-  ///    back and re-taps reprint.
-  /// 2. Otherwise, reset stale state, show the blocking
-  ///    [PrintInProgressDialog], and dispatch
-  ///    `LabelReprintController.reprint(rollId)` end-to-end (fetch + send).
   Future<void> _onReprintTap(
     BuildContext context,
-    WidgetRef ref,
     String generatedRollId,
   ) async {
     final PrinterConfig? printer = ref
@@ -142,33 +155,27 @@ class RollWorkerHomeScreen extends ConsumerWidget {
       return;
     }
 
-    ref.read(labelReprintControllerProvider(shiftLineId).notifier).reset();
-    // Show the blocking dialog first so it observes every state
-    // transition, then kick off the pipeline.
+    ref.read(labelReprintControllerProvider(_shiftLineId).notifier).reset();
     final Future<void> dialog = PrintInProgressDialog.show(
       context,
-      shiftLineId: shiftLineId,
+      shiftLineId: _shiftLineId,
     );
     // ignore: unawaited_futures
     ref
-        .read(labelReprintControllerProvider(shiftLineId).notifier)
+        .read(labelReprintControllerProvider(_shiftLineId).notifier)
         .reprint(generatedRollId);
     await dialog;
   }
 
-  /// Secondary, optional path. Opens the on-screen preview without
-  /// firing any physical print. The preview screen has its own print
-  /// button that routes through the same pipeline.
   Future<void> _openLabelPreview(
     BuildContext context,
-    WidgetRef ref,
     String generatedRollId,
   ) async {
-    ref.read(labelReprintControllerProvider(shiftLineId).notifier).reset();
+    ref.read(labelReprintControllerProvider(_shiftLineId).notifier).reset();
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => LabelPreviewScreen(
-          shiftLineId: shiftLineId,
+          shiftLineId: _shiftLineId,
           generatedRollId: generatedRollId,
         ),
       ),
@@ -181,29 +188,39 @@ class RollWorkerHomeScreen extends ConsumerWidget {
     );
   }
 
-  void _logout(WidgetRef ref) {
-    ref.read(rollScanControllerProvider(shiftLineId).notifier).reset();
-    ref
-        .read(previousRollResolutionControllerProvider(shiftLineId).notifier)
-        .reset();
-    ref.read(labelReprintControllerProvider(shiftLineId).notifier).reset();
-    ref.read(rollWorkerAuthControllerProvider(shiftLineId).notifier).logout();
-  }
-
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final RollScanState scanState = ref.watch(
-      rollScanControllerProvider(shiftLineId),
+  Widget build(BuildContext context) {
+    final ShiftLineSummaryState summaryState = ref.watch(
+      shiftLineSummaryControllerProvider(_shiftLineId),
     );
     final PreviousRollResolutionState resolutionState = ref.watch(
-      previousRollResolutionControllerProvider(shiftLineId),
+      previousRollResolutionControllerProvider(_shiftLineId),
     );
 
-    // Surface a snackbar on every successful close.
+    // Refresh summary after a successful mount.
+    ref.listen<RollScanState>(
+      rollScanControllerProvider(_shiftLineId),
+      (prev, next) {
+        if (next is RollScanMounted && prev is! RollScanMounted) {
+          ref
+              .read(
+                shiftLineSummaryControllerProvider(_shiftLineId).notifier,
+              )
+              .refresh();
+        }
+      },
+    );
+
+    // Refresh summary + snackbar after a successful close.
     ref.listen<PreviousRollResolutionState>(
-      previousRollResolutionControllerProvider(shiftLineId),
+      previousRollResolutionControllerProvider(_shiftLineId),
       (prev, next) {
         if (next is PreviousRollResolved && prev is! PreviousRollResolved) {
+          ref
+              .read(
+                shiftLineSummaryControllerProvider(_shiftLineId).notifier,
+              )
+              .refresh();
           ScaffoldMessenger.maybeOf(context)
             ?..hideCurrentSnackBar()
             ..showSnackBar(
@@ -215,114 +232,74 @@ class RollWorkerHomeScreen extends ConsumerWidget {
       },
     );
 
-    return AppScaffold(
-      title: title,
-      actions: <Widget>[
-        IconButton(
-          tooltip: printerSettingsTooltip,
-          onPressed: () => _openPrinterSettings(context),
-          icon: const Icon(Icons.print_rounded),
-        ),
-      ],
-      body: ListView(
+    final ShiftLineSummary? summary = switch (summaryState) {
+      SummaryLoaded(:final summary) => summary,
+      _ => null,
+    };
+    final bool isRefreshing =
+        summaryState is SummaryLoaded && summaryState.isRefreshing;
+
+    final Widget body = RefreshIndicator(
+      onRefresh: () => ref
+          .read(shiftLineSummaryControllerProvider(_shiftLineId).notifier)
+          .refresh(),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
+          CompactLineHeader(
+            lineCode: summary?.thermoformingLineCode,
+            lineName: summary?.thermoformingLineName,
+            lineIndex: widget.lineIndex,
+          ),
           const SizedBox(height: 12),
-          _SessionCard(session: session),
-          const SizedBox(height: 16),
+          if (summaryState is SummaryLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (summary != null) ...[
+            SummaryCard(
+              completedRollsInShift: summary.completedRollsInShift,
+              completedRollsByCurrentWorker:
+                  summary.completedRollsByCurrentWorker,
+              isRefreshing: isRefreshing,
+            ),
+            const SizedBox(height: 12),
+          ],
           _MountSection(
-            shiftLineId: shiftLineId,
-            scanState: scanState,
+            shiftLineId: _shiftLineId,
             resolutionState: resolutionState,
+            summaryMountedRoll: summary?.mountedRoll,
             onMountTap: () => _openScanScreen(context),
-            onCloseTap: (MountedRoll roll) =>
-                _openCloseFlow(context, ref, roll),
-            onProductSwitchTap: (MountedRoll roll) =>
-                _openProductSwitch(context, roll),
-            onReprintTap: (String generatedRollId) =>
-                _onReprintTap(context, ref, generatedRollId),
-            onPreviewTap: (String generatedRollId) =>
-                _openLabelPreview(context, ref, generatedRollId),
+            onCloseTap: (roll) => _openCloseFlow(context, roll),
+            onProductSwitchTap: () => _openProductSwitch(context),
+            onReprintTap: (id) => _onReprintTap(context, id),
+            onPreviewTap: (id) => _openLabelPreview(context, id),
             onAcknowledgeResolved: () => ref
                 .read(
                   previousRollResolutionControllerProvider(
-                    shiftLineId,
+                    _shiftLineId,
                   ).notifier,
                 )
                 .acknowledge(),
           ),
-          const SizedBox(height: 24),
-          AppSecondaryButton(
-            label: logoutLabel,
-            icon: Icons.logout_rounded,
-            onPressed: () => _logout(ref),
-          ),
         ],
       ),
     );
-  }
-}
 
-class _SessionCard extends StatelessWidget {
-  const _SessionCard({required this.session});
+    if (!widget.standaloneScaffold) return body;
 
-  final RollWorkerSession session;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: const BoxDecoration(
-                  color: AppColors.primaryLight,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.person_rounded,
-                  size: 28,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      RollWorkerHomeScreen.workerHeading,
-                      style: AppTextStyles.label,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(session.rollWorkerName, style: AppTextStyles.h3),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const Divider(height: 24),
-          InfoRow(
-            label: RollWorkerHomeScreen.thermoformingLine,
-            value: '#${session.thermoformingLineId}',
-            icon: Icons.precision_manufacturing_rounded,
-          ),
-          InfoRow(
-            label: RollWorkerHomeScreen.palletizingLine,
-            value: '#${session.palletizingLineId}',
-            icon: Icons.local_shipping_rounded,
-          ),
-          InfoRow(
-            label: RollWorkerHomeScreen.sessionStarted,
-            value:
-                session.startedAtDisplay ?? session.startedAt.toIso8601String(),
-            icon: Icons.schedule_rounded,
-          ),
-        ],
-      ),
+    return AppScaffold(
+      title: RollWorkerHomeScreen.title,
+      actions: <Widget>[
+        IconButton(
+          tooltip: RollWorkerHomeScreen.printerSettingsTooltip,
+          onPressed: () => _openPrinterSettings(context),
+          icon: const Icon(Icons.print_rounded),
+        ),
+        ...?widget.headerActions,
+      ],
+      body: body,
     );
   }
 }
@@ -330,8 +307,8 @@ class _SessionCard extends StatelessWidget {
 class _MountSection extends StatelessWidget {
   const _MountSection({
     required this.shiftLineId,
-    required this.scanState,
     required this.resolutionState,
+    required this.summaryMountedRoll,
     required this.onMountTap,
     required this.onCloseTap,
     required this.onProductSwitchTap,
@@ -341,19 +318,18 @@ class _MountSection extends StatelessWidget {
   });
 
   final int shiftLineId;
-  final RollScanState scanState;
   final PreviousRollResolutionState resolutionState;
+  final SummaryMountedRoll? summaryMountedRoll;
   final VoidCallback onMountTap;
-  final ValueChanged<MountedRoll> onCloseTap;
-  final ValueChanged<MountedRoll> onProductSwitchTap;
+  final ValueChanged<SummaryMountedRoll> onCloseTap;
+  final VoidCallback onProductSwitchTap;
   final ValueChanged<String> onReprintTap;
   final ValueChanged<String> onPreviewTap;
   final VoidCallback onAcknowledgeResolved;
 
   @override
   Widget build(BuildContext context) {
-    // After a successful close, the summary takes precedence over any
-    // residual scan state until the worker dismisses it.
+    // Priority 1: post-close summary card until the worker dismisses it.
     if (resolutionState is PreviousRollResolved) {
       final PreviousRollResolution resolution =
           (resolutionState as PreviousRollResolved).resolution;
@@ -365,34 +341,31 @@ class _MountSection extends StatelessWidget {
       );
     }
 
-    final MountedRoll? roll = switch (scanState) {
-      RollScanMounted(:final roll) => roll,
-      RollScanFailureState(:final previous) => previous,
-      _ => null,
-    };
-
-    if (roll == null) {
-      return _EmptyMountCard(onTap: onMountTap);
+    // Priority 2: backend says a roll is mounted → show compact card + actions.
+    final SummaryMountedRoll? roll = summaryMountedRoll;
+    if (roll != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          CompactMountedRollCard(roll: roll),
+          const SizedBox(height: 12),
+          AppPrimaryButton.accent(
+            label: RollWorkerHomeScreen.closePreviousRoll,
+            icon: Icons.archive_outlined,
+            onPressed: () => onCloseTap(roll),
+          ),
+          const SizedBox(height: 12),
+          AppSecondaryButton(
+            label: RollWorkerHomeScreen.productSwitch,
+            icon: Icons.swap_horiz_rounded,
+            onPressed: onProductSwitchTap,
+          ),
+        ],
+      );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        MountCard(roll: roll),
-        const SizedBox(height: 12),
-        AppPrimaryButton.accent(
-          label: RollWorkerHomeScreen.closePreviousRoll,
-          icon: Icons.archive_outlined,
-          onPressed: () => onCloseTap(roll),
-        ),
-        const SizedBox(height: 12),
-        AppSecondaryButton(
-          label: RollWorkerHomeScreen.productSwitch,
-          icon: Icons.swap_horiz_rounded,
-          onPressed: () => onProductSwitchTap(roll),
-        ),
-      ],
-    );
+    // Priority 3: nothing mounted → empty CTA.
+    return _EmptyMountCard(onTap: onMountTap);
   }
 }
 
@@ -443,7 +416,7 @@ class _EmptyMountCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           AppPrimaryButton(
-            label: RollWorkerHomeScreen.mountNewRoll,
+            label: RollWorkerHomeScreen.scanRoll,
             icon: Icons.qr_code_scanner_rounded,
             onPressed: onTap,
           ),

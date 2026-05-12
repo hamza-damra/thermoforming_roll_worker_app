@@ -12,12 +12,27 @@ class ApiPaths {
 
   static const String _rollAppBase = '/api/v1/thermoforming-roll-app';
 
-  // ─── Roll-worker authentication (per shift-line) ──────────────────────────
+  // ─── Active shift-line picker ────────────────────────────────────────────
 
-  /// `POST {base}/shift-lines/{shiftLineId}/roll-worker-auth`.
-  /// Headers: X-Device-Key. Body: `{ "pin": "..." }`.
-  static String rollWorkerAuth(int shiftLineId) =>
-      '$_rollAppBase/shift-lines/$shiftLineId/roll-worker-auth';
+  /// `GET {base}/shift-lines/active-options`.
+  /// Headers: X-Device-Key only. Reachable before roll-worker auth — does
+  /// NOT require an X-Session-Token. Returns the list of currently-ACTIVE
+  /// Thermoforming shift-lines that the operator app has opened against the
+  /// current shift.
+  static const String activeShiftLineOptions =
+      '$_rollAppBase/shift-lines/active-options';
+
+  // ─── Roll-worker authentication (multi-line batch) ────────────────────────
+
+  /// `POST {base}/sessions/start-batch`.
+  /// Headers: X-Device-Key. Body: `{ "pin": "...", "shiftLineIds": [...] }`.
+  /// Atomic: any error rejects the whole batch and opens no session.
+  /// Source of truth for new code; the legacy single-line auth endpoint
+  /// below is retained for backward compatibility only.
+  static const String sessionsStartBatch =
+      '$_rollAppBase/sessions/start-batch';
+
+  // ─── Roll-worker per-shift-line session restore + logout ──────────────────
 
   /// `GET {base}/shift-lines/{shiftLineId}/roll-worker-session/current`.
   /// Headers: X-Device-Key (NO X-Session-Token — discovery mode).
@@ -28,6 +43,14 @@ class ApiPaths {
   /// Headers: X-Device-Key. Body: `{ "sessionToken": "..." }` (token in body).
   static String rollWorkerLogout(int shiftLineId) =>
       '$_rollAppBase/shift-lines/$shiftLineId/roll-worker-logout';
+
+  // ─── Shift-line summary ──────────────────────────────────────────────────────
+
+  /// `GET {base}/shift-lines/{shiftLineId}/summary`.
+  /// Headers: X-Device-Key, X-Session-Token.
+  /// Returns completed-roll counters and the currently mounted roll snapshot.
+  static String shiftLineSummary(int shiftLineId) =>
+      '$_rollAppBase/shift-lines/$shiftLineId/summary';
 
   // ─── Roll mount / scan ────────────────────────────────────────────────────
 
@@ -78,11 +101,6 @@ class ApiPaths {
 /// Tracked in plan §4 / requirements §24.
 class BackendGapPaths {
   BackendGapPaths._();
-
-  /// §7 / §24 gap #1 — list active Thermoforming shift-lines for the picker.
-  /// Suggested: `GET /api/v1/thermoforming-roll-app/shift-lines/active-options`.
-  static const String activeShiftLineOptions =
-      'GAP: GET /api/v1/thermoforming-roll-app/shift-lines/active-options';
 
   /// §11 / §24 gap #2 — products allowed for product-switch on the line.
   /// Suggested: `GET .../shift-lines/{shiftLineId}/product-switch-options`.

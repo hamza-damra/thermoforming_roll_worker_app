@@ -15,7 +15,6 @@ import 'package:thermoforming_roll_worker/features/roll_scan/presentation/contro
 import 'package:thermoforming_roll_worker/features/roll_scan/presentation/controllers/roll_scan_state.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_providers.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/roll_worker_auth_repository.dart';
-import 'package:thermoforming_roll_worker/features/shift_line/presentation/controllers/selected_shift_line_provider.dart';
 
 class _MockPrevRepo extends Mock implements PreviousRollRepository {}
 
@@ -47,13 +46,6 @@ PreviousRollResolution _partiallyReturned() => const PreviousRollResolution(
   reprintAvailable: true,
 );
 
-class _StaticShiftLineNotifier extends SelectedShiftLineNotifier {
-  _StaticShiftLineNotifier(this.initial);
-  final int initial;
-  @override
-  int? build() => initial;
-}
-
 ProviderContainer _container({
   required PreviousRollRepository prevRepo,
   RollScanRepository? scanRepo,
@@ -66,9 +58,6 @@ ProviderContainer _container({
         rollScanRepositoryProvider.overrideWithValue(scanRepo),
       if (authRepo != null)
         rollWorkerAuthRepositoryProvider.overrideWithValue(authRepo),
-      selectedShiftLineIdProvider.overrideWith(
-        () => _StaticShiftLineNotifier(kShiftLineId),
-      ),
     ],
   );
   addTearDown(c.dispose);
@@ -187,7 +176,7 @@ void main() {
     });
 
     test(
-      'on SHIFT_LINE_NOT_ACTIVE clears selectedShiftLineId via the provider',
+      'on SHIFT_LINE_NOT_ACTIVE also routes through registry.notifySessionLost',
       () async {
         final prev = _MockPrevRepo();
         final authRepo = _MockAuthRepo();
@@ -206,15 +195,13 @@ void main() {
         ).thenAnswer((_) async {});
         final container = _container(prevRepo: prev, authRepo: authRepo);
 
-        expect(container.read(selectedShiftLineIdProvider), kShiftLineId);
-
         await container
             .read(
               previousRollResolutionControllerProvider(kShiftLineId).notifier,
             )
             .sendToGrinding(40.0);
 
-        expect(container.read(selectedShiftLineIdProvider), isNull);
+        verify(() => authRepo.clearStoredToken(kShiftLineId)).called(1);
       },
     );
 

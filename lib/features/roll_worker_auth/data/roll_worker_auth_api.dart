@@ -2,37 +2,19 @@ import 'package:dio/dio.dart';
 
 import '../../../core/api/api_paths.dart';
 import '../../../core/api/response_envelope.dart';
-import 'dto/roll_worker_auth_response.dart';
 import 'dto/roll_worker_session_response.dart';
 
-/// Thin remote data source over Dio for the three roll-worker auth
-/// endpoints. Throws [DioException] on transport / HTTP errors —
-/// repositories are expected to catch and route through `ApiErrorParser`.
+/// Thin remote data source over Dio for the per-shift-line roll-worker
+/// session endpoints (discovery + logout). Throws [DioException] on
+/// transport / HTTP errors — repositories are expected to catch and route
+/// through `ApiErrorParser`.
+///
+/// PIN authentication has moved to the multi-line batch endpoint
+/// ([SessionBatchApi]); this class no longer exposes a `login` method.
 class RollWorkerAuthApi {
   RollWorkerAuthApi(this._dio);
 
   final Dio _dio;
-
-  /// `POST /api/v1/thermoforming-roll-app/shift-lines/{shiftLineId}/roll-worker-auth`
-  /// with body `{ "pin": "..." }`.
-  ///
-  /// Headers: `X-Device-Key` is added by the global interceptor. No
-  /// `X-Session-Token` (the worker has none yet — that's the point of this
-  /// call).
-  Future<RollWorkerAuthResponse> login({
-    required int shiftLineId,
-    required String pin,
-  }) async {
-    final Response<dynamic> response = await _dio.post<dynamic>(
-      ApiPaths.rollWorkerAuth(shiftLineId),
-      data: <String, dynamic>{'pin': pin},
-    );
-    final Object? data = ResponseEnvelope.extractData(response.data);
-    if (data is! Map<String, dynamic>) {
-      throw const FormatException('roll-worker-auth: malformed data envelope');
-    }
-    return RollWorkerAuthResponse.fromJson(data);
-  }
 
   /// `GET /api/v1/thermoforming-roll-app/shift-lines/{shiftLineId}/roll-worker-session/current`
   ///

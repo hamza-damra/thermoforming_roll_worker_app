@@ -12,14 +12,14 @@ class RemainingWeightField extends StatelessWidget {
   const RemainingWeightField({
     super.key,
     required this.controller,
-    required this.maxAllowedKg,
+    this.maxAllowedKg,
     this.enabled = true,
     this.errorText,
     this.onChanged,
   });
 
   final TextEditingController controller;
-  final double maxAllowedKg;
+  final double? maxAllowedKg;
   final bool enabled;
   final String? errorText;
   final ValueChanged<String>? onChanged;
@@ -58,10 +58,11 @@ class RemainingWeightField extends StatelessWidget {
           onChanged: onChanged,
         ),
         const SizedBox(height: 6),
-        Text(
-          'الحد الأقصى: ${maxAllowedKg.toStringAsFixed(3)} كغ',
-          style: AppTextStyles.caption,
-        ),
+        if (maxAllowedKg != null)
+          Text(
+            'الحد الأقصى: ${maxAllowedKg!.toStringAsFixed(3)} كغ',
+            style: AppTextStyles.caption,
+          ),
       ],
     );
   }

@@ -6,10 +6,10 @@ void main() {
     const int shiftLineId = 800;
     const String generatedRollId = '777000000001';
 
-    test('roll-worker auth path is correctly formatted', () {
+    test('sessions start-batch path is the multi-line auth entry point', () {
       expect(
-        ApiPaths.rollWorkerAuth(shiftLineId),
-        '/api/v1/thermoforming-roll-app/shift-lines/800/roll-worker-auth',
+        ApiPaths.sessionsStartBatch,
+        '/api/v1/thermoforming-roll-app/sessions/start-batch',
       );
     });
 
@@ -71,7 +71,7 @@ void main() {
 
     test('every path is under the roll-app namespace', () {
       final List<String> paths = <String>[
-        ApiPaths.rollWorkerAuth(shiftLineId),
+        ApiPaths.sessionsStartBatch,
         ApiPaths.rollWorkerSessionCurrent(shiftLineId),
         ApiPaths.rollWorkerLogout(shiftLineId),
         ApiPaths.scanRoll(shiftLineId),
@@ -101,7 +101,7 @@ void main() {
         'select-product',
       ];
       final List<String> paths = <String>[
-        ApiPaths.rollWorkerAuth(shiftLineId),
+        ApiPaths.sessionsStartBatch,
         ApiPaths.rollWorkerSessionCurrent(shiftLineId),
         ApiPaths.rollWorkerLogout(shiftLineId),
         ApiPaths.scanRoll(shiftLineId),

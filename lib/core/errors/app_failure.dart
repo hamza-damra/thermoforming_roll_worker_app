@@ -41,16 +41,24 @@ class BusinessFailure extends AppFailure {
     required this.code,
     this.serverMessage,
     this.statusCode,
+    this.details,
   });
 
   final ErrorCode code;
   final String? serverMessage;
   final int? statusCode;
 
+  /// Free-form structured payload from `error.details` in the failure
+  /// envelope. Carries per-line ids for batch-start conflicts
+  /// (e.g. `details.shiftLineId`, `details.ownerOperatorName`). Null when
+  /// the backend did not include a `details` block.
+  final Map<String, Object?>? details;
+
   @override
   String toString() =>
       'BusinessFailure(code: ${code.wireValue}, '
-      'statusCode: $statusCode, serverMessage: $serverMessage)';
+      'statusCode: $statusCode, serverMessage: $serverMessage, '
+      'details: $details)';
 }
 
 /// Anything else (parsing errors, unexpected exceptions). UI: generic Arabic.

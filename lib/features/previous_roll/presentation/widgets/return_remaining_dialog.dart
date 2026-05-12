@@ -16,7 +16,7 @@ import 'remaining_weight_field.dart';
 Future<void> showReturnRemainingDialog(
   BuildContext context, {
   required int shiftLineId,
-  required double maxAllowedKg,
+  double? maxAllowedKg,
 }) {
   return showDialog<void>(
     context: context,
@@ -31,11 +31,11 @@ Future<void> showReturnRemainingDialog(
 class _ReturnRemainingDialog extends ConsumerStatefulWidget {
   const _ReturnRemainingDialog({
     required this.shiftLineId,
-    required this.maxAllowedKg,
+    this.maxAllowedKg,
   });
 
   final int shiftLineId;
-  final double maxAllowedKg;
+  final double? maxAllowedKg;
 
   static const String title = 'تأكيد إرجاع المتبقي';
   static const String body = 'هل تريد إرجاع الوزن المتبقي من هذا الرول؟';
@@ -69,7 +69,7 @@ class _ReturnRemainingDialogState
     final double? value = _parseWeight();
     if (value == null) return _ReturnRemainingDialog.validationFormat;
     if (value < 0) return _ReturnRemainingDialog.validationNegative;
-    if (value > widget.maxAllowedKg) {
+    if (widget.maxAllowedKg != null && value > widget.maxAllowedKg!) {
       return _ReturnRemainingDialog.validationOverflow;
     }
     return null;

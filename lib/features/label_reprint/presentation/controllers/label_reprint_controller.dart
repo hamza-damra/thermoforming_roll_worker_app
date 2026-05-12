@@ -10,7 +10,7 @@ import '../../../printer/data/printing_local_storage.dart';
 import '../../../printer/domain/entities/label_preset.dart';
 import '../../../printer/domain/entities/printer_config.dart';
 import '../../../printer/pipeline/printer_transport.dart';
-import '../../../roll_worker_auth/presentation/controllers/roll_worker_auth_controller.dart';
+import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../data/label_reprint_providers.dart';
 import '../../domain/entities/roll_label.dart';
 import '../../domain/label_reprint_repository.dart';
@@ -168,8 +168,8 @@ class LabelReprintController extends FamilyNotifier<LabelReprintState, int> {
         failure.code == ErrorCode.rollWorkerSessionRequired) {
       // Cascade snackbar fires via the bootstrap listener.
       await ref
-          .read(rollWorkerAuthControllerProvider(_shiftLineId).notifier)
-          .notifySessionLost();
+          .read(multiLineSessionRegistryProvider.notifier)
+          .notifySessionLost(_shiftLineId);
     }
   }
 }

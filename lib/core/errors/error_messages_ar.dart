@@ -11,6 +11,16 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
   ErrorCode.operatorPinInvalid: 'رقم تعريف غير صحيح.',
   ErrorCode.operatorPinLocked:
       'تم قفل رقم التعريف بسبب محاولات خاطئة، حاول لاحقًا.',
+  ErrorCode.operatorLocked:
+      'تم قفل رقم التعريف بسبب محاولات خاطئة، حاول لاحقًا.',
+
+  // Multi-line batch session-start
+  ErrorCode.rollWorkerSessionBatchEmpty: 'اختر خطًا واحدًا على الأقل.',
+  ErrorCode.rollWorkerSessionLineDuplicate: 'تم تكرار خط في الطلب.',
+  ErrorCode.rollWorkerSessionLineInactive:
+      'أحد الخطوط لم يعد نشطًا، حدّث القائمة.',
+  ErrorCode.rollWorkerSessionLineUsedByOtherWorker:
+      'أحد الخطوط قيد الاستخدام من قبل عامل آخر.',
 
   // Shift-line state
   ErrorCode.thermoformingShiftLineNotFound:

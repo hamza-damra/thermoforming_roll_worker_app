@@ -57,6 +57,15 @@ class SecureTokenStorage {
     );
   }
 
+  /// Bulk-clear convenience for logout-all / wipe flows. Deletes one key
+  /// per id; failures on individual keys propagate (caller should retry the
+  /// whole set since storage failures here are unusual).
+  Future<void> clearAllSessionTokens(Iterable<int> shiftLineIds) async {
+    for (final int id in shiftLineIds) {
+      await clearSessionToken(id);
+    }
+  }
+
   /// Writes the last shift-line id picked on this device. UX hint only —
   /// not a security boundary.
   Future<void> writeSelectedShiftLineId(int shiftLineId) {

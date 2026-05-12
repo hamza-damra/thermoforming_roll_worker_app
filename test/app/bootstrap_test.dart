@@ -6,15 +6,55 @@ import 'package:thermoforming_roll_worker/app/app.dart';
 import 'package:thermoforming_roll_worker/app/bootstrap_screen.dart';
 import 'package:thermoforming_roll_worker/core/config/app_config.dart';
 import 'package:thermoforming_roll_worker/core/config/config_providers.dart';
-import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
-import 'package:thermoforming_roll_worker/core/errors/error_code.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_providers.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entities/roll_worker_session.dart';
-import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/controllers/roll_worker_auth_controller.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/roll_worker_auth_repository.dart';
-import 'package:thermoforming_roll_worker/features/shift_line/presentation/controllers/selected_shift_line_provider.dart';
+import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
+import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
+import 'package:thermoforming_roll_worker/features/shift_line/data/active_shift_line_options_providers.dart';
+import 'package:thermoforming_roll_worker/features/shift_line/domain/active_shift_line_options_repository.dart';
+import 'package:thermoforming_roll_worker/features/home/data/shift_line_summary_providers.dart';
+import 'package:thermoforming_roll_worker/features/home/domain/entities/shift_line_summary.dart';
+import 'package:thermoforming_roll_worker/features/home/domain/shift_line_summary_repository.dart';
+import 'package:thermoforming_roll_worker/features/shift_line/domain/entities/active_shift_line_option.dart';
 
-class _MockRepo extends Mock implements RollWorkerAuthRepository {}
+class _MockAuthRepo extends Mock implements RollWorkerAuthRepository {}
+
+class _MockOptionsRepo extends Mock
+    implements ActiveShiftLineOptionsRepository {}
+
+class _MockSummaryRepo extends Mock implements ShiftLineSummaryRepository {}
+
+ShiftLineSummaryRepository _summaryRepo() {
+  final repo = _MockSummaryRepo();
+  when(
+    () => repo.fetchSummary(shiftLineId: any(named: 'shiftLineId')),
+  ).thenAnswer(
+    (invocation) async {
+      final int id =
+          invocation.namedArguments[const Symbol('shiftLineId')] as int;
+      return SummarySuccess(
+        ShiftLineSummary(
+          shiftLineId: id,
+          thermoformingLineCode: 'TH-01',
+          thermoformingLineName: 'خط التشكيل 1',
+          completedRollsInShift: 0,
+          completedRollsByCurrentWorker: 0,
+        ),
+      );
+    },
+  );
+  return repo;
+}
+
+ActiveShiftLineOptionsRepository _emptyOptionsRepo() {
+  final repo = _MockOptionsRepo();
+  when(repo.fetch).thenAnswer(
+    (_) async =>
+        const ActiveShiftLineOptionsSuccess(<ActiveShiftLineOption>[]),
+  );
+  return repo;
+}
 
 const AppConfig _testConfig = AppConfig(
   apiBaseUrl: 'https://test.local',
@@ -23,132 +63,159 @@ const AppConfig _testConfig = AppConfig(
 
 const int kShiftLineId = 800;
 
+RollWorkerSession _session({int shiftLineId = kShiftLineId}) =>
+    RollWorkerSession(
+      sessionId: 1,
+      rollWorkerOperatorId: 1,
+      rollWorkerName: 'Ahmad',
+      thermoformingShiftId: 700,
+      thermoformingShiftLineId: shiftLineId,
+      thermoformingLineId: 200,
+      palletizingLineId: 10,
+      startedAt: DateTime.parse('2026-05-08T13:00:00Z'),
+      status: 'ACTIVE',
+    );
+
+class _StaticRegistry extends MultiLineSessionRegistry {
+  _StaticRegistry(this._initial);
+  final MultiLineSessionRegistryState _initial;
+
+  @override
+  MultiLineSessionRegistryState build() => _initial;
+
+  @override
+  Future<void> restoreFromStorage() async {
+    // Tests pre-seed the state via [_initial]; the bootstrap calls this on
+    // first frame and on resume — make it a no-op here.
+  }
+}
+
+MultiLineSessionRegistryState _empty() => const RegistryEmpty();
+
+MultiLineSessionRegistryState _activeWith(
+  Map<int, RollWorkerSession> sessions, {
+  int? activeId,
+}) => RegistryActive(
+  sessions: sessions,
+  activeShiftLineId: activeId ?? sessions.keys.first,
+  logoutStatus: <int, LineLogoutStatus>{
+    for (final int id in sessions.keys) id: LineLogoutStatus.idle,
+  },
+);
+
 void main() {
   testWidgets(
-    'no shiftLineId selected → shows the waiting-for-line backend-gap screen',
+    'cold start with empty registry → renders the picker empty-state copy',
     (WidgetTester tester) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: <Override>[
             appConfigProvider.overrideWithValue(_testConfig),
+            multiLineSessionRegistryProvider.overrideWith(
+              () => _StaticRegistry(_empty()),
+            ),
+            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
+              _emptyOptionsRepo(),
+            ),
           ],
           child: const RollWorkerApp(),
         ),
       );
-      // The waiting screen contains a passive heartbeat indicator that
-      // never settles. Use a bounded pump instead of pumpAndSettle.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('بانتظار فتح خط من تطبيق المشغّل'), findsOneWidget);
-      expect(find.text('قائمة الخطوط غير متاحة حاليًا'), findsOneWidget);
     },
   );
 
-  testWidgets('shiftLineId selected and no session → routes to PIN screen', (
-    WidgetTester tester,
-  ) async {
-    final repo = _MockRepo();
-    when(() => repo.getCurrentSession(kShiftLineId)).thenAnswer(
-      // ROLL_WORKER_SESSION_REQUIRED → unauthenticated route to PIN.
-      (_) async => const RollWorkerAuthFailure(
-        BusinessFailure(code: ErrorCode.rollWorkerSessionRequired),
-      ),
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: <Override>[
-          appConfigProvider.overrideWithValue(_testConfig),
-          selectedShiftLineIdProvider.overrideWith(
-            () => _StaticShiftLineNotifier(kShiftLineId),
-          ),
-          rollWorkerAuthRepositoryProvider.overrideWithValue(repo),
-        ],
-        child: const RollWorkerApp(),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('تسجيل دخول عامل الرولات'), findsWidgets);
-    expect(find.text('دخول'), findsOneWidget);
-  });
-
   testWidgets(
-    'authenticated session → routes to home placeholder with logout button',
+    'cold start with one active session → renders the multi-line home',
     (WidgetTester tester) async {
-      final repo = _MockRepo();
-      when(() => repo.getCurrentSession(kShiftLineId)).thenAnswer(
-        (_) async => RollWorkerAuthSuccess(
-          RollWorkerSession(
-            sessionId: 1,
-            rollWorkerOperatorId: 1,
-            rollWorkerName: 'Ahmad',
-            thermoformingShiftId: 700,
-            thermoformingShiftLineId: kShiftLineId,
-            thermoformingLineId: 200,
-            palletizingLineId: 10,
-            startedAt: DateTime.parse('2026-05-08T13:00:00Z'),
-            startedAtDisplay: '2026-05-08، 1:00 مساءً',
-            status: 'ACTIVE',
-          ),
-        ),
-      );
-
       await tester.pumpWidget(
         ProviderScope(
           overrides: <Override>[
             appConfigProvider.overrideWithValue(_testConfig),
-            selectedShiftLineIdProvider.overrideWith(
-              () => _StaticShiftLineNotifier(kShiftLineId),
+            multiLineSessionRegistryProvider.overrideWith(
+              () => _StaticRegistry(
+                _activeWith(<int, RollWorkerSession>{
+                  kShiftLineId: _session(),
+                }),
+              ),
             ),
-            rollWorkerAuthRepositoryProvider.overrideWithValue(repo),
+            rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
+            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
+              _emptyOptionsRepo(),
+            ),
           ],
           child: const RollWorkerApp(),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Ahmad'), findsOneWidget);
-      expect(find.text('تسجيل خروج عامل الرولات'), findsOneWidget);
-      // RTL is preserved everywhere.
+      // Home screen rendered — RTL is preserved.
       final BuildContext ctx = tester.element(find.byType(Scaffold).first);
       expect(Directionality.of(ctx), TextDirection.rtl);
+      // Single-line mode: no NavigationBar.
+      expect(find.byType(NavigationBar), findsNothing);
     },
   );
 
   testWidgets(
-    'cascade snackbar shows when active session disappears (silent loss)',
+    'cold start with two active sessions → renders NavigationBar with two tabs',
     (WidgetTester tester) async {
-      final repo = _MockRepo();
-      // First check returns ACTIVE. Second check (after we trigger
-      // notifySessionLost) drops to silent-loss Unauthenticated.
-      when(() => repo.getCurrentSession(kShiftLineId)).thenAnswer(
-        (_) async => RollWorkerAuthSuccess(
-          RollWorkerSession(
-            sessionId: 1,
-            rollWorkerOperatorId: 1,
-            rollWorkerName: 'Ahmad',
-            thermoformingShiftId: 700,
-            thermoformingShiftLineId: kShiftLineId,
-            thermoformingLineId: 200,
-            palletizingLineId: 10,
-            startedAt: DateTime.parse('2026-05-08T13:00:00Z'),
-            status: 'ACTIVE',
-          ),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            appConfigProvider.overrideWithValue(_testConfig),
+            multiLineSessionRegistryProvider.overrideWith(
+              () => _StaticRegistry(
+                _activeWith(<int, RollWorkerSession>{
+                  800: _session(shiftLineId: 800),
+                  801: _session(shiftLineId: 801),
+                }),
+              ),
+            ),
+            rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
+            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
+              _emptyOptionsRepo(),
+            ),
+          ],
+          child: const RollWorkerApp(),
         ),
       );
-      when(() => repo.clearStoredToken(kShiftLineId)).thenAnswer((_) async {});
+      await tester.pumpAndSettle();
 
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.byType(NavigationDestination), findsNWidgets(2));
+    },
+  );
+
+  testWidgets(
+    'cascade snackbar fires when active line is lost while others remain',
+    (WidgetTester tester) async {
       late ProviderContainer container;
       await tester.pumpWidget(
         ProviderScope(
           overrides: <Override>[
             appConfigProvider.overrideWithValue(_testConfig),
-            selectedShiftLineIdProvider.overrideWith(
-              () => _StaticShiftLineNotifier(kShiftLineId),
+            multiLineSessionRegistryProvider.overrideWith(
+              () => _StaticRegistry(
+                _activeWith(
+                  <int, RollWorkerSession>{
+                    800: _session(shiftLineId: 800),
+                    801: _session(shiftLineId: 801),
+                  },
+                  activeId: 800,
+                ),
+              ),
             ),
-            rollWorkerAuthRepositoryProvider.overrideWithValue(repo),
+            rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
+            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
+              _emptyOptionsRepo(),
+            ),
           ],
           child: Builder(
             builder: (context) {
@@ -159,149 +226,111 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      // Sanity: we landed on the home placeholder.
-      expect(find.text('Ahmad'), findsOneWidget);
 
-      // Simulate cascade-on-end: a Stage 5+ feature would call this when a
-      // mutating endpoint returns ROLL_WORKER_SESSION_REQUIRED.
-      await container
-          .read(rollWorkerAuthControllerProvider(kShiftLineId).notifier)
-          .notifySessionLost();
-      await tester.pump(); // build PIN screen
-      await tester.pump(); // process snackbar
+      // Simulate a non-active-line loss first: should NOT fire a snackbar.
+      container.read(multiLineSessionRegistryProvider.notifier).state =
+          RegistryActive(
+            sessions: <int, RollWorkerSession>{800: _session(shiftLineId: 800)},
+            activeShiftLineId: 800,
+            logoutStatus: const <int, LineLogoutStatus>{800: LineLogoutStatus.idle},
+            lastEvent: const LineLost(801),
+          );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text(BootstrapScreen.cascadeMessage), findsNothing);
+
+      // Now lose the active line — surviving sessions remain. Snackbar fires.
+      container.read(multiLineSessionRegistryProvider.notifier).state =
+          RegistryActive(
+            sessions: <int, RollWorkerSession>{801: _session(shiftLineId: 801)},
+            activeShiftLineId: 801,
+            logoutStatus: const <int, LineLogoutStatus>{801: LineLogoutStatus.idle},
+            lastEvent: const LineLost(800),
+          );
+      await tester.pump();
+      await tester.pump();
 
       expect(find.text(BootstrapScreen.cascadeMessage), findsOneWidget);
     },
   );
 
-  testWidgets('cascade snackbar does NOT show on a deliberate logout', (
-    WidgetTester tester,
-  ) async {
-    final repo = _MockRepo();
-    when(() => repo.getCurrentSession(kShiftLineId)).thenAnswer(
-      (_) async => RollWorkerAuthSuccess(
-        RollWorkerSession(
-          sessionId: 1,
-          rollWorkerOperatorId: 1,
-          rollWorkerName: 'Ahmad',
-          thermoformingShiftId: 700,
-          thermoformingShiftLineId: kShiftLineId,
-          thermoformingLineId: 200,
-          palletizingLineId: 10,
-          startedAt: DateTime.parse('2026-05-08T13:00:00Z'),
-          status: 'ACTIVE',
-        ),
-      ),
-    );
-    when(() => repo.logout(kShiftLineId)).thenAnswer((_) async {});
-
-    late ProviderContainer container;
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: <Override>[
-          appConfigProvider.overrideWithValue(_testConfig),
-          selectedShiftLineIdProvider.overrideWith(
-            () => _StaticShiftLineNotifier(kShiftLineId),
-          ),
-          rollWorkerAuthRepositoryProvider.overrideWithValue(repo),
-        ],
-        child: Builder(
-          builder: (context) {
-            container = ProviderScope.containerOf(context);
-            return const RollWorkerApp();
-          },
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await container
-        .read(rollWorkerAuthControllerProvider(kShiftLineId).notifier)
-        .logout();
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text(BootstrapScreen.cascadeMessage), findsNothing);
-  });
-
-  testWidgets('app-resume triggers checkSession for the active shift-line', (
-    WidgetTester tester,
-  ) async {
-    final repo = _MockRepo();
-    // Both calls (mount + resume) return the same active session — we
-    // assert by call count.
-    when(() => repo.getCurrentSession(kShiftLineId)).thenAnswer(
-      (_) async => RollWorkerAuthSuccess(
-        RollWorkerSession(
-          sessionId: 1,
-          rollWorkerOperatorId: 1,
-          rollWorkerName: 'Ahmad',
-          thermoformingShiftId: 700,
-          thermoformingShiftLineId: kShiftLineId,
-          thermoformingLineId: 200,
-          palletizingLineId: 10,
-          startedAt: DateTime.parse('2026-05-08T13:00:00Z'),
-          status: 'ACTIVE',
-        ),
-      ),
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: <Override>[
-          appConfigProvider.overrideWithValue(_testConfig),
-          selectedShiftLineIdProvider.overrideWith(
-            () => _StaticShiftLineNotifier(kShiftLineId),
-          ),
-          rollWorkerAuthRepositoryProvider.overrideWithValue(repo),
-        ],
-        child: const RollWorkerApp(),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    // First check happened on mount.
-    verify(() => repo.getCurrentSession(kShiftLineId)).called(1);
-
-    // Simulate the app being backgrounded then resumed.
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pumpAndSettle();
-
-    verify(() => repo.getCurrentSession(kShiftLineId)).called(1);
-  });
-
   testWidgets(
-    'app-resume does NOT call checkSession when no shift-line is selected',
+    'cascade snackbar fires when registry transitions Active → Empty via LineLost',
     (WidgetTester tester) async {
-      final repo = _MockRepo();
+      late ProviderContainer container;
       await tester.pumpWidget(
         ProviderScope(
           overrides: <Override>[
             appConfigProvider.overrideWithValue(_testConfig),
-            rollWorkerAuthRepositoryProvider.overrideWithValue(repo),
+            multiLineSessionRegistryProvider.overrideWith(
+              () => _StaticRegistry(
+                _activeWith(<int, RollWorkerSession>{
+                  kShiftLineId: _session(),
+                }),
+              ),
+            ),
+            rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
+            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
+              _emptyOptionsRepo(),
+            ),
           ],
-          child: const RollWorkerApp(),
+          child: Builder(
+            builder: (context) {
+              container = ProviderScope.containerOf(context);
+              return const RollWorkerApp();
+            },
+          ),
         ),
       );
-      // Waiting screen has a passive heartbeat — bounded pumps only.
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle();
 
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      container.read(multiLineSessionRegistryProvider.notifier).state =
+          const RegistryEmpty(lastEvent: LineLost(kShiftLineId));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump();
 
-      verifyNever(() => repo.getCurrentSession(any<int>()));
+      expect(find.text(BootstrapScreen.cascadeMessage), findsOneWidget);
     },
   );
-}
 
-class _StaticShiftLineNotifier extends SelectedShiftLineNotifier {
-  _StaticShiftLineNotifier(this.initial);
-  final int initial;
+  testWidgets(
+    'no cascade snackbar on a deliberate logout (Active → Empty without LineLost)',
+    (WidgetTester tester) async {
+      late ProviderContainer container;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            appConfigProvider.overrideWithValue(_testConfig),
+            multiLineSessionRegistryProvider.overrideWith(
+              () => _StaticRegistry(
+                _activeWith(<int, RollWorkerSession>{
+                  kShiftLineId: _session(),
+                }),
+              ),
+            ),
+            rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
+            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
+              _emptyOptionsRepo(),
+            ),
+          ],
+          child: Builder(
+            builder: (context) {
+              container = ProviderScope.containerOf(context);
+              return const RollWorkerApp();
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-  @override
-  int? build() => initial;
+      container.read(multiLineSessionRegistryProvider.notifier).state =
+          const RegistryEmpty(lastEvent: DeliberateLogout(kShiftLineId));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(BootstrapScreen.cascadeMessage), findsNothing);
+    },
+  );
 }

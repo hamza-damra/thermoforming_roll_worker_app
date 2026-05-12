@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// Build-time application configuration.
 ///
 /// Values are populated via `--dart-define` at build / run time:
@@ -12,10 +14,27 @@ class AppConfig {
 
   /// Reads the build-time configuration. Both values default to empty strings
   /// when unset so [isMissing] / [isComplete] can detect that.
-  factory AppConfig.fromEnvironment() => const AppConfig(
-    apiBaseUrl: String.fromEnvironment('API_BASE_URL'),
-    deviceKey: String.fromEnvironment('DEVICE_KEY'),
-  );
+  ///
+  /// In **debug** builds, missing values fall back to local dev defaults so
+  /// devs don't need `--dart-define` every run. In profile and release
+  /// builds the empty values surface as a fatal-config screen — fail closed.
+  factory AppConfig.fromEnvironment() {
+    const String envBaseUrl = String.fromEnvironment('API_BASE_URL');
+    const String envDeviceKey = String.fromEnvironment('DEVICE_KEY');
+    if (kDebugMode) {
+      return AppConfig(
+        apiBaseUrl: envBaseUrl.isEmpty ? _debugBaseUrl : envBaseUrl,
+        deviceKey: envDeviceKey.isEmpty ? _debugDeviceKey : envDeviceKey,
+      );
+    }
+    return const AppConfig(apiBaseUrl: envBaseUrl, deviceKey: envDeviceKey);
+  }
+
+  // Debug-only defaults. The kDebugMode branch above means these are never
+  // referenced in profile/release, so tree-shaking strips them from
+  // production binaries.
+  static const String _debugBaseUrl = 'http://taleeb.ddns.net:8080';
+  static const String _debugDeviceKey = 'taleeb-device-key-2025-default';
 
   final String apiBaseUrl;
   final String deviceKey;

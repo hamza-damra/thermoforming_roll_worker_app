@@ -10,6 +10,18 @@ enum ErrorCode {
   operatorPinInvalid('OPERATOR_PIN_INVALID'),
   operatorPinLocked('OPERATOR_PIN_LOCKED'),
 
+  /// Multi-line batch-start lockout. Wire-distinct from
+  /// [operatorPinLocked]; UI maps both to the same Arabic locked message.
+  operatorLocked('OPERATOR_LOCKED'),
+
+  // ─── Multi-line batch session-start ───────────────────────────────────────
+  rollWorkerSessionBatchEmpty('ROLL_WORKER_SESSION_BATCH_EMPTY'),
+  rollWorkerSessionLineDuplicate('ROLL_WORKER_SESSION_LINE_DUPLICATE'),
+  rollWorkerSessionLineInactive('ROLL_WORKER_SESSION_LINE_INACTIVE'),
+  rollWorkerSessionLineUsedByOtherWorker(
+    'ROLL_WORKER_SESSION_LINE_USED_BY_OTHER_WORKER',
+  ),
+
   // ─── Shift-line state ─────────────────────────────────────────────────────
   thermoformingShiftLineNotFound('THERMOFORMING_SHIFT_LINE_NOT_FOUND'),
   thermoformingShiftLineNotActive('THERMOFORMING_SHIFT_LINE_NOT_ACTIVE'),

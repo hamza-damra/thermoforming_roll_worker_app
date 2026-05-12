@@ -17,4 +17,11 @@ class StorageKeys {
   ///
   /// (Will be wired in Stage 4 when the picker / waiting screen lands.)
   static const String selectedShiftLineId = 'selected_shift_line_id';
+
+  /// JSON-encoded list of shift-line ids the device currently holds an
+  /// active roll-worker session for. Read on app launch to drive
+  /// per-line `/current` restoration; written on every batch-start and
+  /// every per-line logout/cascade-loss.
+  static const String rollWorkerActiveShiftLineIds =
+      'roll_worker_active_shift_line_ids';
 }

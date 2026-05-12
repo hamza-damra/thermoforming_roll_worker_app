@@ -17,7 +17,7 @@ import 'remaining_weight_field.dart';
 Future<void> showGrindingDialog(
   BuildContext context, {
   required int shiftLineId,
-  required double maxAllowedKg,
+  double? maxAllowedKg,
 }) {
   return showDialog<void>(
     context: context,
@@ -30,11 +30,11 @@ Future<void> showGrindingDialog(
 class _GrindingDialog extends ConsumerStatefulWidget {
   const _GrindingDialog({
     required this.shiftLineId,
-    required this.maxAllowedKg,
+    this.maxAllowedKg,
   });
 
   final int shiftLineId;
-  final double maxAllowedKg;
+  final double? maxAllowedKg;
 
   static const String title = 'تأكيد إرسال المتبقي للجرش';
   static const String body = 'هل تريد إرسال الوزن المتبقي للجرش؟';
@@ -68,7 +68,7 @@ class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
     final double? value = _parseWeight();
     if (value == null) return _GrindingDialog.validationFormat;
     if (value < 0) return _GrindingDialog.validationNegative;
-    if (value > widget.maxAllowedKg) {
+    if (widget.maxAllowedKg != null && value > widget.maxAllowedKg!) {
       return _GrindingDialog.validationOverflow;
     }
     return null;

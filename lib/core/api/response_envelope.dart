@@ -36,10 +36,15 @@ class ResponseEnvelope {
 
     final Object? code = error['code'];
     final Object? message = error['message'];
+    final Object? rawDetails = error['details'];
+    final Map<String, Object?>? details = rawDetails is Map
+        ? Map<String, Object?>.from(rawDetails)
+        : null;
     return BusinessFailure(
       code: ErrorCode.fromWire(code is String ? code : null),
       serverMessage: message is String ? message : null,
       statusCode: statusCode,
+      details: details,
     );
   }
 }

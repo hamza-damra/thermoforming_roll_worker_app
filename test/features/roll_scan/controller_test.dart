@@ -10,7 +10,6 @@ import 'package:thermoforming_roll_worker/features/roll_scan/presentation/contro
 import 'package:thermoforming_roll_worker/features/roll_scan/presentation/controllers/roll_scan_state.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_providers.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/roll_worker_auth_repository.dart';
-import 'package:thermoforming_roll_worker/features/shift_line/presentation/controllers/selected_shift_line_provider.dart';
 
 class _MockScanRepo extends Mock implements RollScanRepository {}
 
@@ -33,14 +32,6 @@ MountedRoll _mounted({String id = '777000000001'}) => MountedRoll(
   lastKnownWeightKg: 250.0,
 );
 
-class _StaticShiftLineNotifier extends SelectedShiftLineNotifier {
-  _StaticShiftLineNotifier(this.initial);
-  final int initial;
-
-  @override
-  int? build() => initial;
-}
-
 ProviderContainer _container({
   required RollScanRepository scanRepo,
   RollWorkerAuthRepository? authRepo,
@@ -50,9 +41,6 @@ ProviderContainer _container({
       rollScanRepositoryProvider.overrideWithValue(scanRepo),
       if (authRepo != null)
         rollWorkerAuthRepositoryProvider.overrideWithValue(authRepo),
-      selectedShiftLineIdProvider.overrideWith(
-        () => _StaticShiftLineNotifier(kShiftLineId),
-      ),
     ],
   );
   addTearDown(c.dispose);
@@ -167,7 +155,7 @@ void main() {
     );
 
     test(
-      'SESSION_REQUIRED triggers auth.notifySessionLost and keeps inline failure',
+      'SESSION_REQUIRED triggers registry.notifySessionLost (clears token)',
       () async {
         final scanRepo = _MockScanRepo();
         final authRepo = _MockAuthRepo();
@@ -195,7 +183,7 @@ void main() {
     );
 
     test(
-      'SHIFT_LINE_NOT_ACTIVE clears selectedShiftLineId via the provider',
+      'SHIFT_LINE_NOT_ACTIVE also routes through registry.notifySessionLost',
       () async {
         final scanRepo = _MockScanRepo();
         final authRepo = _MockAuthRepo();
@@ -214,14 +202,11 @@ void main() {
         ).thenAnswer((_) async {});
         final container = _container(scanRepo: scanRepo, authRepo: authRepo);
 
-        // Sanity: initially set.
-        expect(container.read(selectedShiftLineIdProvider), kShiftLineId);
-
         await container
             .read(rollScanControllerProvider(kShiftLineId).notifier)
             .mountRoll('777000000001');
 
-        expect(container.read(selectedShiftLineIdProvider), isNull);
+        verify(() => authRepo.clearStoredToken(kShiftLineId)).called(1);
       },
     );
 

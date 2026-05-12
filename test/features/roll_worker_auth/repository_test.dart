@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:thermoforming_roll_worker/core/api/api_paths.dart';
 import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
-import 'package:thermoforming_roll_worker/core/errors/error_code.dart';
 import 'package:thermoforming_roll_worker/core/storage/secure_token_storage.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_api.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_repository_impl.dart';
@@ -17,22 +16,6 @@ class _MockStorage extends Mock implements FlutterSecureStorage {}
 class _FakeOptions extends Fake implements Options {}
 
 const int kShiftLineId = 800;
-
-Map<String, dynamic> _authBody({String token = 'raw-uuid'}) =>
-    <String, dynamic>{
-      'success': true,
-      'data': <String, dynamic>{
-        'sessionId': 999,
-        'sessionToken': token,
-        'rollWorkerOperatorId': 42,
-        'rollWorkerName': 'Ahmad',
-        'thermoformingShiftId': 700,
-        'thermoformingShiftLineId': 800,
-        'thermoformingLineId': 200,
-        'palletizingLineId': 10,
-        'startedAt': '2026-05-08T13:00:00.000+03:00',
-      },
-    };
 
 Map<String, dynamic> _sessionBody({String status = 'ACTIVE'}) =>
     <String, dynamic>{
@@ -85,93 +68,6 @@ void main() {
     repo = RollWorkerAuthRepositoryImpl(
       api: RollWorkerAuthApi(dio),
       storage: storage,
-    );
-  });
-
-  group('login', () {
-    test('on success, persists token and returns the session', () async {
-      when(
-        () => dio.post<dynamic>(
-          ApiPaths.rollWorkerAuth(kShiftLineId),
-          data: any<Object?>(named: 'data'),
-        ),
-      ).thenAnswer(
-        (_) async => Response<dynamic>(
-          requestOptions: RequestOptions(path: '/x'),
-          statusCode: 201,
-          data: _authBody(token: 'persisted-token'),
-        ),
-      );
-      when(
-        () => rawStorage.write(
-          key: any<String>(named: 'key'),
-          value: any<String>(named: 'value'),
-        ),
-      ).thenAnswer((_) async {});
-
-      final result = await repo.login(shiftLineId: kShiftLineId, pin: '1234');
-
-      expect(result, isA<RollWorkerAuthSuccess>());
-      verify(
-        () => rawStorage.write(
-          key: 'roll_worker_session_token_$kShiftLineId',
-          value: 'persisted-token',
-        ),
-      ).called(1);
-    });
-
-    test(
-      'on ROLL_WORKER_NOT_ALLOWED, surfaces BusinessFailure and does NOT persist token',
-      () async {
-        when(
-          () => dio.post<dynamic>(
-            ApiPaths.rollWorkerAuth(kShiftLineId),
-            data: any<Object?>(named: 'data'),
-          ),
-        ).thenThrow(
-          _businessException(statusCode: 403, code: 'ROLL_WORKER_NOT_ALLOWED'),
-        );
-
-        final result = await repo.login(shiftLineId: kShiftLineId, pin: '1234');
-
-        expect(result, isA<RollWorkerAuthFailure>());
-        final failure = (result as RollWorkerAuthFailure).failure;
-        expect(failure, isA<BusinessFailure>());
-        expect(
-          (failure as BusinessFailure).code,
-          ErrorCode.rollWorkerNotAllowed,
-        );
-        verifyNever(
-          () => rawStorage.write(
-            key: any<String>(named: 'key'),
-            value: any<String>(named: 'value'),
-          ),
-        );
-      },
-    );
-
-    test(
-      'on OPERATOR_PIN_INVALID, surfaces BusinessFailure and does NOT persist token',
-      () async {
-        when(
-          () => dio.post<dynamic>(
-            ApiPaths.rollWorkerAuth(kShiftLineId),
-            data: any<Object?>(named: 'data'),
-          ),
-        ).thenThrow(
-          _businessException(statusCode: 401, code: 'OPERATOR_PIN_INVALID'),
-        );
-
-        final result = await repo.login(shiftLineId: kShiftLineId, pin: '0000');
-
-        expect(result, isA<RollWorkerAuthFailure>());
-        verifyNever(
-          () => rawStorage.write(
-            key: any<String>(named: 'key'),
-            value: any<String>(named: 'value'),
-          ),
-        );
-      },
     );
   });
 

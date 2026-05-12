@@ -5,19 +5,46 @@ import 'package:mocktail/mocktail.dart';
 import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
 import 'package:thermoforming_roll_worker/core/errors/error_code.dart';
 import 'package:thermoforming_roll_worker/core/theme/app_theme.dart';
+import 'package:thermoforming_roll_worker/features/home/data/shift_line_summary_providers.dart';
+import 'package:thermoforming_roll_worker/features/home/domain/entities/shift_line_summary.dart';
+import 'package:thermoforming_roll_worker/features/home/domain/shift_line_summary_repository.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_providers.dart';
+import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entities/batch_auth_outcome.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entities/roll_worker_session.dart';
-import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/roll_worker_auth_repository.dart';
+import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/session_batch_repository.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/screens/pin_screen.dart';
 
-class _MockRepo extends Mock implements RollWorkerAuthRepository {}
+class _MockBatchRepo extends Mock implements SessionBatchRepository {}
 
-const int kShiftLineId = 800;
+class _MockSummaryRepo extends Mock implements ShiftLineSummaryRepository {}
 
-Widget _wrap({required _MockRepo repo}) {
+ShiftLineSummaryRepository _summaryRepo() {
+  final repo = _MockSummaryRepo();
+  when(
+    () => repo.fetchSummary(shiftLineId: any(named: 'shiftLineId')),
+  ).thenAnswer((invocation) async {
+    final int id =
+        invocation.namedArguments[const Symbol('shiftLineId')] as int;
+    return SummarySuccess(
+      ShiftLineSummary(
+        shiftLineId: id,
+        thermoformingLineCode: 'TH-01',
+        thermoformingLineName: 'خط التشكيل 1',
+        completedRollsInShift: 0,
+        completedRollsByCurrentWorker: 0,
+      ),
+    );
+  });
+  return repo;
+}
+
+const Set<int> kShiftLineIds = <int>{800, 801};
+
+Widget _wrap({required _MockBatchRepo repo}) {
   return ProviderScope(
     overrides: <Override>[
-      rollWorkerAuthRepositoryProvider.overrideWithValue(repo),
+      sessionBatchRepositoryProvider.overrideWithValue(repo),
+      shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
     ],
     child: MaterialApp(
       theme: AppTheme.light(),
@@ -25,16 +52,41 @@ Widget _wrap({required _MockRepo repo}) {
         textDirection: TextDirection.rtl,
         child: child ?? const SizedBox.shrink(),
       ),
-      home: const PinScreen(shiftLineId: kShiftLineId),
+      home: const PinScreen(shiftLineIds: kShiftLineIds),
     ),
   );
 }
 
+BatchAuthOutcome _outcome() => BatchAuthOutcome(
+  rollWorkerOperatorId: 77,
+  rollWorkerName: 'Yusuf',
+  sessions: <int, RollWorkerSession>{
+    800: RollWorkerSession(
+      sessionId: 1,
+      rollWorkerOperatorId: 77,
+      rollWorkerName: 'Yusuf',
+      thermoformingShiftId: 9001,
+      thermoformingShiftLineId: 800,
+      thermoformingLineId: 11,
+      palletizingLineId: 21,
+      startedAt: DateTime.parse('2026-05-10T10:00:00Z'),
+    ),
+    801: RollWorkerSession(
+      sessionId: 2,
+      rollWorkerOperatorId: 77,
+      rollWorkerName: 'Yusuf',
+      thermoformingShiftId: 9001,
+      thermoformingShiftLineId: 801,
+      thermoformingLineId: 12,
+      palletizingLineId: 22,
+      startedAt: DateTime.parse('2026-05-10T10:00:00Z'),
+    ),
+  },
+);
+
 void main() {
-  testWidgets('PinScreen renders the prescribed Arabic title and button', (
-    WidgetTester tester,
-  ) async {
-    final repo = _MockRepo();
+  testWidgets('renders Arabic title and submit button', (tester) async {
+    final repo = _MockBatchRepo();
     await tester.pumpWidget(_wrap(repo: repo));
     await tester.pumpAndSettle();
 
@@ -42,24 +94,17 @@ void main() {
     expect(find.text('دخول'), findsOneWidget);
   });
 
-  testWidgets('typing a PIN and submitting calls repository.login', (
-    WidgetTester tester,
+  testWidgets('typing PIN and submitting calls startBatch with the Set', (
+    tester,
   ) async {
-    final repo = _MockRepo();
-    when(() => repo.login(shiftLineId: kShiftLineId, pin: '1234')).thenAnswer(
-      (_) async => RollWorkerAuthSuccess(
-        RollWorkerSession(
-          sessionId: 1,
-          rollWorkerOperatorId: 1,
-          rollWorkerName: 'Ahmad',
-          thermoformingShiftId: 1,
-          thermoformingShiftLineId: kShiftLineId,
-          thermoformingLineId: 1,
-          palletizingLineId: 1,
-          startedAt: DateTime.parse('2026-05-08T13:00:00Z'),
-        ),
+    final repo = _MockBatchRepo();
+    when(
+      () => repo.startBatch(
+        pin: '1234',
+        shiftLineIds: kShiftLineIds,
       ),
-    );
+    ).thenAnswer((_) async => BatchAuthSuccessResult(_outcome()));
+
     await tester.pumpWidget(_wrap(repo: repo));
     await tester.pumpAndSettle();
 
@@ -67,54 +112,28 @@ void main() {
     await tester.tap(find.text('دخول'));
     await tester.pumpAndSettle();
 
-    verify(() => repo.login(shiftLineId: kShiftLineId, pin: '1234')).called(1);
+    verify(
+      () => repo.startBatch(pin: '1234', shiftLineIds: kShiftLineIds),
+    ).called(1);
   });
 
-  testWidgets(
-    'ROLL_WORKER_NOT_ALLOWED surfaces an inline Arabic unauthorized error',
-    (WidgetTester tester) async {
-      final repo = _MockRepo();
-      when(
-        () => repo.login(
-          shiftLineId: kShiftLineId,
-          pin: any<String>(named: 'pin'),
-        ),
-      ).thenAnswer(
-        (_) async => const RollWorkerAuthFailure(
-          BusinessFailure(code: ErrorCode.rollWorkerNotAllowed),
-        ),
-      );
-      await tester.pumpWidget(_wrap(repo: repo));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(find.byType(TextField), '1234');
-      await tester.tap(find.text('دخول'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('هذا الموظف غير مصرح له كتطبيق عامل الرولات'),
-        findsOneWidget,
-      );
-    },
-  );
-
-  testWidgets('OPERATOR_PIN_INVALID surfaces the mapped Arabic error', (
-    WidgetTester tester,
+  testWidgets('OPERATOR_PIN_INVALID surfaces inline Arabic error', (
+    tester,
   ) async {
-    final repo = _MockRepo();
+    final repo = _MockBatchRepo();
     when(
-      () => repo.login(
-        shiftLineId: kShiftLineId,
+      () => repo.startBatch(
         pin: any<String>(named: 'pin'),
+        shiftLineIds: any<Set<int>>(named: 'shiftLineIds'),
       ),
     ).thenAnswer(
-      (_) async => const RollWorkerAuthFailure(
+      (_) async => const BatchAuthFailureResult(
         BusinessFailure(code: ErrorCode.operatorPinInvalid),
       ),
     );
+
     await tester.pumpWidget(_wrap(repo: repo));
     await tester.pumpAndSettle();
-
     await tester.enterText(find.byType(TextField), '0000');
     await tester.tap(find.text('دخول'));
     await tester.pumpAndSettle();
@@ -122,10 +141,59 @@ void main() {
     expect(find.text('رقم تعريف غير صحيح.'), findsOneWidget);
   });
 
-  testWidgets('empty PIN does not call repository.login', (
-    WidgetTester tester,
+  testWidgets('OPERATOR_LOCKED surfaces locked helper and disables submit', (
+    tester,
   ) async {
-    final repo = _MockRepo();
+    final repo = _MockBatchRepo();
+    when(
+      () => repo.startBatch(
+        pin: any<String>(named: 'pin'),
+        shiftLineIds: any<Set<int>>(named: 'shiftLineIds'),
+      ),
+    ).thenAnswer(
+      (_) async => const BatchAuthFailureResult(
+        BusinessFailure(code: ErrorCode.operatorLocked),
+      ),
+    );
+
+    await tester.pumpWidget(_wrap(repo: repo));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '0000');
+    await tester.tap(find.text('دخول'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(PinScreen.pinLockedHelper), findsOneWidget);
+  });
+
+  testWidgets('ROLL_WORKER_NOT_ALLOWED surfaces unauthorized helper', (
+    tester,
+  ) async {
+    final repo = _MockBatchRepo();
+    when(
+      () => repo.startBatch(
+        pin: any<String>(named: 'pin'),
+        shiftLineIds: any<Set<int>>(named: 'shiftLineIds'),
+      ),
+    ).thenAnswer(
+      (_) async => const BatchAuthFailureResult(
+        BusinessFailure(code: ErrorCode.rollWorkerNotAllowed),
+      ),
+    );
+
+    await tester.pumpWidget(_wrap(repo: repo));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '1234');
+    await tester.tap(find.text('دخول'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('هذا الموظف غير مصرح له كتطبيق عامل الرولات'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('empty PIN does not call repository.startBatch', (tester) async {
+    final repo = _MockBatchRepo();
     await tester.pumpWidget(_wrap(repo: repo));
     await tester.pumpAndSettle();
 
@@ -133,9 +201,9 @@ void main() {
     await tester.pumpAndSettle();
 
     verifyNever(
-      () => repo.login(
-        shiftLineId: any<int>(named: 'shiftLineId'),
+      () => repo.startBatch(
         pin: any<String>(named: 'pin'),
+        shiftLineIds: any<Set<int>>(named: 'shiftLineIds'),
       ),
     );
   });

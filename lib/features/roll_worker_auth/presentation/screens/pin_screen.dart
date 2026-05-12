@@ -10,14 +10,23 @@ import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/inline_error.dart';
-import '../controllers/roll_worker_auth_controller.dart';
-import '../controllers/roll_worker_auth_state.dart';
+import '../controllers/batch_auth_controller.dart';
+import '../controllers/batch_auth_state.dart';
 import '../widgets/pin_input.dart';
 
+/// Multi-line batch session-start PIN entry.
+///
+/// Pushed onto the navigator from the picker with the worker's selected
+/// `shiftLineIds`. Submits PIN exactly once for the whole batch via
+/// [BatchAuthController]. On per-line conflict codes, pops back to the
+/// picker so the picker can drop offending ids and let the worker retry;
+/// on global codes (`OPERATOR_PIN_INVALID`, `OPERATOR_LOCKED`,
+/// `ROLL_WORKER_NOT_ALLOWED`, `ROLL_WORKER_SESSION_BATCH_EMPTY`) shows
+/// inline error and stays.
 class PinScreen extends ConsumerStatefulWidget {
-  const PinScreen({super.key, required this.shiftLineId});
+  const PinScreen({super.key, required this.shiftLineIds});
 
-  final int shiftLineId;
+  final Set<int> shiftLineIds;
 
   static const String title = 'تسجيل دخول عامل الرولات';
   static const String submitLabel = 'دخول';
@@ -34,6 +43,13 @@ class PinScreen extends ConsumerStatefulWidget {
 class _PinScreenState extends ConsumerState<PinScreen> {
   final TextEditingController _pinController = TextEditingController();
 
+  static const Set<ErrorCode> _perLineCodes = <ErrorCode>{
+    ErrorCode.thermoformingShiftLineNotFound,
+    ErrorCode.rollWorkerSessionLineInactive,
+    ErrorCode.rollWorkerSessionLineUsedByOtherWorker,
+    ErrorCode.rollWorkerSessionLineDuplicate,
+  };
+
   @override
   void dispose() {
     // Defensive: clear the buffer before disposing so PIN material doesn't
@@ -43,33 +59,44 @@ class _PinScreenState extends ConsumerState<PinScreen> {
     super.dispose();
   }
 
-  bool get _isAuthenticating {
-    final RollWorkerAuthState s = ref.read(
-      rollWorkerAuthControllerProvider(widget.shiftLineId),
-    );
-    return s is RollWorkerAuthAuthenticating;
-  }
-
   void _submit() {
-    if (_isAuthenticating) return;
+    final BatchAuthState s = ref.read(batchAuthControllerProvider);
+    if (s is BatchAuthSubmitting) return;
     final String pin = _pinController.text.trim();
     if (pin.isEmpty) return;
     ref
-        .read(rollWorkerAuthControllerProvider(widget.shiftLineId).notifier)
-        .login(pin);
+        .read(batchAuthControllerProvider.notifier)
+        .submit(pin, widget.shiftLineIds);
+  }
+
+  void _onAuthStateChanged(BatchAuthState? prev, BatchAuthState next) {
+    // Success: registry has been seeded; pop so the bootstrap re-renders
+    // into the multi-line home.
+    if (next is BatchAuthSuccess) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    // Per-line conflict: pop so the picker can drop the offending ids and
+    // re-render with a highlight.
+    if (next is BatchAuthFailure &&
+        next.failure is BusinessFailure &&
+        _perLineCodes.contains((next.failure as BusinessFailure).code)) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final RollWorkerAuthState authState = ref.watch(
-      rollWorkerAuthControllerProvider(widget.shiftLineId),
+    ref.listen<BatchAuthState>(
+      batchAuthControllerProvider,
+      _onAuthStateChanged,
     );
+    final BatchAuthState authState = ref.watch(batchAuthControllerProvider);
 
-    final bool authenticating = authState is RollWorkerAuthAuthenticating;
-    final AppFailure? failure = switch (authState) {
-      RollWorkerAuthUnauthenticated(:final lastFailure) => lastFailure,
-      _ => null,
-    };
+    final bool authenticating = authState is BatchAuthSubmitting;
+    final AppFailure? failure = authState is BatchAuthFailure
+        ? authState.failure
+        : null;
     // Wipe PIN whenever an error surfaces so the worker re-types and the
     // buffer doesn't linger.
     if (failure != null && _pinController.text.isNotEmpty) {
@@ -78,7 +105,8 @@ class _PinScreenState extends ConsumerState<PinScreen> {
 
     final bool isLocked =
         failure is BusinessFailure &&
-        failure.code == ErrorCode.operatorPinLocked;
+        (failure.code == ErrorCode.operatorPinLocked ||
+            failure.code == ErrorCode.operatorLocked);
     final bool isUnauthorized =
         failure is BusinessFailure &&
         failure.code == ErrorCode.rollWorkerNotAllowed;

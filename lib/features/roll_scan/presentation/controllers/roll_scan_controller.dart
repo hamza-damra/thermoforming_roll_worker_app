@@ -2,8 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/errors/app_failure.dart';
 import '../../../../core/errors/error_code.dart';
-import '../../../roll_worker_auth/presentation/controllers/roll_worker_auth_controller.dart';
-import '../../../shift_line/presentation/controllers/selected_shift_line_provider.dart';
+import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../data/roll_scan_providers.dart';
 import '../../domain/entities/mounted_roll.dart';
 import '../../domain/roll_scan_repository.dart';
@@ -91,18 +90,11 @@ class RollScanController extends FamilyNotifier<RollScanState, int> {
     if (failure is! BusinessFailure) return;
     switch (failure.code) {
       case ErrorCode.rollWorkerSessionRequired:
-        // Auth controller handles token-clear + cascade snackbar wiring.
-        await ref
-            .read(rollWorkerAuthControllerProvider(_shiftLineId).notifier)
-            .notifySessionLost();
       case ErrorCode.thermoformingShiftLineNotActive:
       case ErrorCode.thermoformingShiftLineNotFound:
-        // Drop back to the waiting screen and let the bootstrap snackbar
-        // surface the cascade message via the auth controller.
         await ref
-            .read(rollWorkerAuthControllerProvider(_shiftLineId).notifier)
-            .notifySessionLost();
-        ref.read(selectedShiftLineIdProvider.notifier).clear();
+            .read(multiLineSessionRegistryProvider.notifier)
+            .notifySessionLost(_shiftLineId);
       default:
         break;
     }

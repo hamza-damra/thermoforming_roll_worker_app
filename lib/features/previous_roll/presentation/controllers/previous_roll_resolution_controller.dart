@@ -3,8 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/errors/app_failure.dart';
 import '../../../../core/errors/error_code.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_controller.dart';
-import '../../../roll_worker_auth/presentation/controllers/roll_worker_auth_controller.dart';
-import '../../../shift_line/presentation/controllers/selected_shift_line_provider.dart';
+import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../data/previous_roll_providers.dart';
 import '../../domain/previous_roll_repository.dart';
 import 'previous_roll_resolution_state.dart';
@@ -94,15 +93,11 @@ class PreviousRollResolutionController
     if (failure is! BusinessFailure) return;
     switch (failure.code) {
       case ErrorCode.rollWorkerSessionRequired:
-        await ref
-            .read(rollWorkerAuthControllerProvider(_shiftLineId).notifier)
-            .notifySessionLost();
       case ErrorCode.thermoformingShiftLineNotActive:
       case ErrorCode.thermoformingShiftLineNotFound:
         await ref
-            .read(rollWorkerAuthControllerProvider(_shiftLineId).notifier)
-            .notifySessionLost();
-        ref.read(selectedShiftLineIdProvider.notifier).clear();
+            .read(multiLineSessionRegistryProvider.notifier)
+            .notifySessionLost(_shiftLineId);
       case ErrorCode.noActiveRollOnLine:
         // Server says nothing is mounted — drop the local mount cache so
         // the home re-exposes the empty mount CTA.
