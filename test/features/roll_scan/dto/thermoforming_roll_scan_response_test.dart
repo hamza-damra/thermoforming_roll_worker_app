@@ -57,6 +57,95 @@ void main() {
       expect(entity.isInConsumption, isTrue);
     });
 
+    test('warnings defaults to empty when the field is absent', () {
+      final ThermoformingRollScanResponse dto =
+          ThermoformingRollScanResponse.fromJson(const <String, dynamic>{
+            'rollId': 1,
+            'generatedRollId': '777000000001',
+            'rollTypeId': 1,
+            'rollTypeRollCode': 'x',
+            'rollTypeDisplayName': 'x',
+            'colorName': 'x',
+            'productTypeId': 1,
+            'productTypeName': 'x',
+            'consumptionItemId': 1,
+            'activeSegmentId': 1,
+            'state': 'IN_CONSUMPTION',
+            'lastKnownWeightKg': 250.0,
+          });
+      expect(dto.warnings, isEmpty);
+    });
+
+    test('warnings parses ROLL_CURING_MAXIMUM_EXCEEDED payload', () {
+      final ThermoformingRollScanResponse dto =
+          ThermoformingRollScanResponse.fromJson(const <String, dynamic>{
+            'rollId': 1,
+            'generatedRollId': '777000000001',
+            'rollTypeId': 1,
+            'rollTypeRollCode': 'x',
+            'rollTypeDisplayName': 'x',
+            'colorName': 'x',
+            'productTypeId': 1,
+            'productTypeName': 'x',
+            'consumptionItemId': 1,
+            'activeSegmentId': 1,
+            'state': 'IN_CONSUMPTION',
+            'lastKnownWeightKg': 250.0,
+            'warnings': <Map<String, Object?>>[
+              <String, Object?>{
+                'code': 'ROLL_CURING_MAXIMUM_EXCEEDED',
+                'severity': 'WARNING',
+                'message': 'تنبيه: عمر هذا الرول تجاوز الحد الأعلى للحضانة.',
+                'payload': <String, Object?>{
+                  'rollCode': '777000000001',
+                  'maxCuringDays': 7,
+                  'actualAgeDays': 13.13,
+                },
+              },
+            ],
+          });
+
+      expect(dto.warnings, hasLength(1));
+      expect(dto.warnings.first.code, 'ROLL_CURING_MAXIMUM_EXCEEDED');
+      expect(dto.warnings.first.severity, 'WARNING');
+      expect(
+        dto.warnings.first.message,
+        'تنبيه: عمر هذا الرول تجاوز الحد الأعلى للحضانة.',
+      );
+      expect(dto.warnings.first.payload['maxCuringDays'], 7);
+      expect(dto.warnings.first.payload['actualAgeDays'], 13.13);
+    });
+
+    test('warning entries with missing code/message are skipped', () {
+      final ThermoformingRollScanResponse dto =
+          ThermoformingRollScanResponse.fromJson(const <String, dynamic>{
+            'rollId': 1,
+            'generatedRollId': '777000000001',
+            'rollTypeId': 1,
+            'rollTypeRollCode': 'x',
+            'rollTypeDisplayName': 'x',
+            'colorName': 'x',
+            'productTypeId': 1,
+            'productTypeName': 'x',
+            'consumptionItemId': 1,
+            'activeSegmentId': 1,
+            'state': 'IN_CONSUMPTION',
+            'lastKnownWeightKg': 250.0,
+            'warnings': <Object?>[
+              <String, Object?>{'code': 'ONLY_CODE'},
+              <String, Object?>{'message': 'only message'},
+              'not-an-object',
+              <String, Object?>{
+                'code': 'OK',
+                'message': 'm',
+              },
+            ],
+          });
+      expect(dto.warnings, hasLength(1));
+      expect(dto.warnings.first.code, 'OK');
+      expect(dto.warnings.first.severity, 'WARNING');
+    });
+
     test('integer-typed lastKnownWeightKg is coerced to double', () {
       final ThermoformingRollScanResponse dto =
           ThermoformingRollScanResponse.fromJson(const <String, dynamic>{

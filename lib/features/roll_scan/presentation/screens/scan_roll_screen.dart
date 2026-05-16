@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/errors/app_failure.dart';
+import '../../../../core/errors/error_code.dart';
 import '../../../../core/errors/error_messages_ar.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_secondary_button.dart';
 import '../../../../core/widgets/inline_error.dart';
+import '../../domain/entities/roll_scan_warning.dart';
 import '../controllers/roll_scan_controller.dart';
 import '../controllers/roll_scan_state.dart';
+import '../widgets/curing_max_warning_dialog.dart';
+import '../widgets/curing_min_violation_dialog.dart';
 import '../widgets/manual_roll_input_dialog.dart';
 import '../widgets/qr_scanner_view.dart';
 
@@ -24,6 +29,8 @@ class ScanRollScreen extends ConsumerStatefulWidget {
   static const String helperText = 'وجّه الكاميرا نحو رمز QR على الرول لتركيبه';
   static const String successMessage = 'تم تركيب الرول بنجاح';
   static const String submittingMessage = 'جاري تركيب الرول…';
+
+  static const String curingMaxWarningCode = 'ROLL_CURING_MAXIMUM_EXCEEDED';
 
   @override
   ConsumerState<ScanRollScreen> createState() => _ScanRollScreenState();
@@ -52,6 +59,44 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
         .mountRoll(code);
   }
 
+  Future<void> _handleMounted(RollScanMounted next) async {
+    final RollScanWarning? maxWarning = _firstCuringMaxWarning(next.warnings);
+    if (maxWarning != null) {
+      await showCuringMaxWarningDialog(context, warning: maxWarning);
+      if (!mounted) return;
+    } else {
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text(ScanRollScreen.successMessage)),
+        );
+    }
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  Future<void> _handleFailure(RollScanFailureState next) async {
+    final AppFailure failure = next.failure;
+    if (failure is BusinessFailure &&
+        failure.code == ErrorCode.rollCuringMinimumNotMet) {
+      // Re-arm the camera under the dialog so the worker can scan a
+      // different roll after acknowledging.
+      _resetScanner();
+      await showCuringMinViolationDialog(context, failure: failure);
+      return;
+    }
+    // Default failure path: inline error + re-open camera for retry.
+    _resetScanner();
+  }
+
+  static RollScanWarning? _firstCuringMaxWarning(
+    List<RollScanWarning> warnings,
+  ) {
+    for (final RollScanWarning w in warnings) {
+      if (w.code == ScanRollScreen.curingMaxWarningCode) return w;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final RollScanState scanState = ref.watch(
@@ -63,16 +108,10 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
       prev,
       next,
     ) {
-      if (next is RollScanMounted) {
-        ScaffoldMessenger.maybeOf(context)
-          ?..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(content: Text(ScanRollScreen.successMessage)),
-          );
-        if (mounted) Navigator.of(context).maybePop();
+      if (next is RollScanMounted && prev is! RollScanMounted) {
+        _handleMounted(next);
       } else if (next is RollScanFailureState) {
-        // Re-open the camera for another attempt.
-        _resetScanner();
+        _handleFailure(next);
       }
     });
 
@@ -99,7 +138,8 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
                     helperText: ScanRollScreen.helperText,
                   ),
           ),
-          if (scanState is RollScanFailureState)
+          if (scanState is RollScanFailureState &&
+              !_isCuringMinFailure(scanState.failure))
             Padding(
               padding: const EdgeInsets.all(16),
               child: AppCard(
@@ -121,6 +161,11 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
         ],
       ),
     );
+  }
+
+  static bool _isCuringMinFailure(AppFailure failure) {
+    return failure is BusinessFailure &&
+        failure.code == ErrorCode.rollCuringMinimumNotMet;
   }
 }
 

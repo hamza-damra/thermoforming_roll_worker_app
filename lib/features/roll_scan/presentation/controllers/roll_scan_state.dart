@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../../core/errors/app_failure.dart';
 import '../../domain/entities/mounted_roll.dart';
+import '../../domain/entities/roll_scan_warning.dart';
 
 /// Scan / mount state for a single shift-line. Sealed so the UI must
 /// handle every branch via a `switch` expression.
@@ -25,8 +26,17 @@ class RollScanSubmitting extends RollScanState {
 
 /// A roll is currently mounted on the line.
 class RollScanMounted extends RollScanState {
-  const RollScanMounted(this.roll);
+  const RollScanMounted(
+    this.roll, {
+    this.warnings = const <RollScanWarning>[],
+  });
   final MountedRoll roll;
+
+  /// Transient warnings emitted alongside this fresh mount (e.g. over-cured
+  /// roll). Always present; empty when no warnings. Only carries fresh
+  /// warnings from the most recent scan — never re-surfaced after
+  /// `clearError`.
+  final List<RollScanWarning> warnings;
 }
 
 /// Last submit failed; the error is shown inline. The state holds the

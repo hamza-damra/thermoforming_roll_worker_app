@@ -22,6 +22,7 @@ void main() {
         'ROLL_BLOCKED': ErrorCode.rollBlocked,
         'ROLL_TYPE_NOT_ALLOWED_FOR_PRODUCT':
             ErrorCode.rollTypeNotAllowedForProduct,
+        'ROLL_CURING_MINIMUM_NOT_MET': ErrorCode.rollCuringMinimumNotMet,
         'NO_ACTIVE_ROLL_ON_LINE': ErrorCode.noActiveRollOnLine,
         'NO_OPEN_SEGMENT_ON_ITEM': ErrorCode.noOpenSegmentOnItem,
         'INVALID_REMAINING_ROLL_WEIGHT': ErrorCode.invalidRemainingRollWeight,

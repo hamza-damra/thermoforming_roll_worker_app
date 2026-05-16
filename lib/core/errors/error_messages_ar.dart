@@ -38,6 +38,8 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
       'هذا الرول مُحمَّل بالفعل على خط تشكيل حراري آخر.',
   ErrorCode.rollBlocked: 'هذا الرول محظور ولا يمكن استخدامه.',
   ErrorCode.rollTypeNotAllowedForProduct: 'نوع الرول غير مسموح لهذا المنتج.',
+  ErrorCode.rollCuringMinimumNotMet:
+      'لا يمكن تركيب هذا الرول الآن، لم تكتمل مدة الحضانة المطلوبة.',
   ErrorCode.noActiveRollOnLine: 'لا يوجد رول مُحمَّل حالياً على هذا الخط.',
   ErrorCode.noOpenSegmentOnItem: 'حدث خطأ تقني، يُرجى التواصل مع الدعم.',
 

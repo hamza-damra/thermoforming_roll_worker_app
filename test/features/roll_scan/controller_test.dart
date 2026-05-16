@@ -5,6 +5,7 @@ import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
 import 'package:thermoforming_roll_worker/core/errors/error_code.dart';
 import 'package:thermoforming_roll_worker/features/roll_scan/data/roll_scan_providers.dart';
 import 'package:thermoforming_roll_worker/features/roll_scan/domain/entities/mounted_roll.dart';
+import 'package:thermoforming_roll_worker/features/roll_scan/domain/entities/roll_scan_warning.dart';
 import 'package:thermoforming_roll_worker/features/roll_scan/domain/roll_scan_repository.dart';
 import 'package:thermoforming_roll_worker/features/roll_scan/presentation/controllers/roll_scan_controller.dart';
 import 'package:thermoforming_roll_worker/features/roll_scan/presentation/controllers/roll_scan_state.dart';
@@ -110,7 +111,97 @@ void main() {
       final state = container.read(rollScanControllerProvider(kShiftLineId));
       expect(state, isA<RollScanMounted>());
       expect((state as RollScanMounted).roll.generatedRollId, '777000000001');
+      expect(state.warnings, isEmpty);
     });
+
+    test(
+      'on success carrying ROLL_CURING_MAXIMUM_EXCEEDED, warnings flow into '
+      'RollScanMounted',
+      () async {
+        final scanRepo = _MockScanRepo();
+        const warning = RollScanWarning(
+          code: 'ROLL_CURING_MAXIMUM_EXCEEDED',
+          severity: 'WARNING',
+          message: 'تنبيه: عمر هذا الرول تجاوز الحد الأعلى للحضانة.',
+          payload: <String, Object?>{
+            'rollCode': '777000000001',
+            'maxCuringDays': 7,
+            'actualAgeDays': 13.13,
+          },
+        );
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000001',
+          ),
+        ).thenAnswer(
+          (_) async => RollScanSuccess(
+            _mounted(),
+            warnings: const <RollScanWarning>[warning],
+          ),
+        );
+        final container = _container(scanRepo: scanRepo);
+
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000001');
+
+        final state = container.read(rollScanControllerProvider(kShiftLineId));
+        expect(state, isA<RollScanMounted>());
+        final mounted = state as RollScanMounted;
+        expect(mounted.warnings, hasLength(1));
+        expect(mounted.warnings.first.code, 'ROLL_CURING_MAXIMUM_EXCEEDED');
+        expect(mounted.warnings.first.payload['maxCuringDays'], 7);
+      },
+    );
+
+    test(
+      'ROLL_CURING_MINIMUM_NOT_MET surfaces a blocking BusinessFailure '
+      'without clearing token',
+      () async {
+        final scanRepo = _MockScanRepo();
+        final authRepo = _MockAuthRepo();
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000001',
+          ),
+        ).thenAnswer(
+          (_) async => const RollScanFailure(
+            BusinessFailure(
+              code: ErrorCode.rollCuringMinimumNotMet,
+              statusCode: 409,
+              serverMessage:
+                  'لا يمكن تركيب هذا الرول الآن. مدة الحضانة المطلوبة 5 يوم.',
+              details: <String, Object?>{
+                'minCuringDays': 5,
+                'actualAgeHours': 48,
+                'actualAgeDays': 2.0,
+              },
+            ),
+          ),
+        );
+        final container = _container(scanRepo: scanRepo, authRepo: authRepo);
+
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000001');
+
+        final state = container.read(rollScanControllerProvider(kShiftLineId));
+        expect(state, isA<RollScanFailureState>());
+        final failure = (state as RollScanFailureState).failure;
+        expect(failure, isA<BusinessFailure>());
+        expect(
+          (failure as BusinessFailure).code,
+          ErrorCode.rollCuringMinimumNotMet,
+        );
+        expect(failure.statusCode, 409);
+        expect(failure.details?['minCuringDays'], 5);
+        // Curing failures are not session/line failures — registry MUST NOT
+        // clear the token.
+        verifyNever(() => authRepo.clearStoredToken(any<int>()));
+      },
+    );
 
     test(
       'ROLL_NOT_FOUND surfaces inline failure and preserves previous mount',

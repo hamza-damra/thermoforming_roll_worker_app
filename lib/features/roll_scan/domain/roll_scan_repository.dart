@@ -1,5 +1,6 @@
 import '../../../core/errors/app_failure.dart';
 import 'entities/mounted_roll.dart';
+import 'entities/roll_scan_warning.dart';
 
 /// Outcome of a scan-roll call. Repositories return one of these instead of
 /// throwing — controllers map to UI states.
@@ -8,8 +9,15 @@ sealed class RollScanResult {
 }
 
 class RollScanSuccess extends RollScanResult {
-  const RollScanSuccess(this.mounted);
+  const RollScanSuccess(
+    this.mounted, {
+    this.warnings = const <RollScanWarning>[],
+  });
   final MountedRoll mounted;
+
+  /// Non-fatal warnings emitted by the backend alongside the successful
+  /// mount (e.g. over-cured roll). Always present; empty when no warnings.
+  final List<RollScanWarning> warnings;
 }
 
 class RollScanFailure extends RollScanResult {

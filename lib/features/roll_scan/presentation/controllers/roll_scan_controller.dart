@@ -51,8 +51,8 @@ class RollScanController extends FamilyNotifier<RollScanState, int> {
       generatedRollId: trimmed,
     );
     switch (result) {
-      case RollScanSuccess(:final mounted):
-        state = RollScanMounted(mounted);
+      case RollScanSuccess(:final mounted, :final warnings):
+        state = RollScanMounted(mounted, warnings: warnings);
       case RollScanFailure(:final failure):
         await _onFailure(failure, previous: snapshot);
     }

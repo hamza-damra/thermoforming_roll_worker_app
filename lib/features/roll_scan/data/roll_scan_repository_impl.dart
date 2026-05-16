@@ -34,7 +34,7 @@ class RollScanRepositoryImpl implements RollScanRepository {
         generatedRollId: generatedRollId,
         sessionToken: token,
       );
-      return RollScanSuccess(dto.toEntity());
+      return RollScanSuccess(dto.toEntity(), warnings: dto.warnings);
     } catch (error, stack) {
       final AppFailure failure = ApiErrorParser.parse(error, stack);
       // Cascade-on-end / session-loss invalidates the locally stored token.

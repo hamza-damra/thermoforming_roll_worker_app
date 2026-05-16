@@ -33,6 +33,7 @@ enum ErrorCode {
   rollActiveOnAnotherLine('ROLL_ACTIVE_ON_ANOTHER_LINE'),
   rollBlocked('ROLL_BLOCKED'),
   rollTypeNotAllowedForProduct('ROLL_TYPE_NOT_ALLOWED_FOR_PRODUCT'),
+  rollCuringMinimumNotMet('ROLL_CURING_MINIMUM_NOT_MET'),
   noActiveRollOnLine('NO_ACTIVE_ROLL_ON_LINE'),
   noOpenSegmentOnItem('NO_OPEN_SEGMENT_ON_ITEM'),
 

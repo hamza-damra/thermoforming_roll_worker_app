@@ -221,6 +221,85 @@ void main() {
     },
   );
 
+  test(
+    'success body with warnings[] surfaces them in RollScanSuccess.warnings',
+    () async {
+      stubReadToken(kToken);
+      final Map<String, dynamic> body = _scanSuccessBody();
+      (body['data'] as Map<String, dynamic>)['warnings'] =
+          <Map<String, Object?>>[
+            <String, Object?>{
+              'code': 'ROLL_CURING_MAXIMUM_EXCEEDED',
+              'severity': 'WARNING',
+              'message': 'تنبيه: عمر هذا الرول تجاوز الحد الأعلى للحضانة.',
+              'payload': <String, Object?>{
+                'rollCode': kRollId,
+                'maxCuringDays': 7,
+                'actualAgeDays': 13.13,
+              },
+            },
+          ];
+      when(
+        () => dio.post<dynamic>(
+          ApiPaths.scanRoll(kShiftLineId),
+          data: any<Object?>(named: 'data'),
+          options: any<Options>(named: 'options'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<dynamic>(
+          requestOptions: RequestOptions(path: '/x'),
+          statusCode: 201,
+          data: body,
+        ),
+      );
+
+      final result = await repo.mountRoll(
+        shiftLineId: kShiftLineId,
+        generatedRollId: kRollId,
+      );
+
+      expect(result, isA<RollScanSuccess>());
+      final success = result as RollScanSuccess;
+      expect(success.warnings, hasLength(1));
+      expect(success.warnings.first.code, 'ROLL_CURING_MAXIMUM_EXCEEDED');
+      expect(success.warnings.first.payload['maxCuringDays'], 7);
+    },
+  );
+
+  test(
+    'ROLL_CURING_MINIMUM_NOT_MET (409) surfaces BusinessFailure WITHOUT '
+    'clearing the locally stored token',
+    () async {
+      stubReadToken(kToken);
+      when(
+        () => dio.post<dynamic>(
+          any<String>(),
+          data: any<Object?>(named: 'data'),
+          options: any<Options>(named: 'options'),
+        ),
+      ).thenThrow(
+        _businessException(
+          statusCode: 409,
+          code: 'ROLL_CURING_MINIMUM_NOT_MET',
+        ),
+      );
+
+      final result = await repo.mountRoll(
+        shiftLineId: kShiftLineId,
+        generatedRollId: kRollId,
+      );
+
+      expect(result, isA<RollScanFailure>());
+      final failure = (result as RollScanFailure).failure;
+      expect(
+        (failure as BusinessFailure).code,
+        ErrorCode.rollCuringMinimumNotMet,
+      );
+      expect(failure.statusCode, 409);
+      verifyNever(() => rawStorage.delete(key: any<String>(named: 'key')));
+    },
+  );
+
   test('network failure preserves the locally stored token', () async {
     stubReadToken(kToken);
     when(
