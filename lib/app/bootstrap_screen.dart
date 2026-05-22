@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/diagnostics/refresh_log.dart';
 import '../core/theme/app_colors.dart';
 import '../core/widgets/app_scaffold.dart';
 import '../features/home/presentation/screens/multi_line_home_shell.dart';
 import '../features/roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../features/roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
-import '../features/shift_line/presentation/controllers/active_shift_line_options_controller.dart';
+import '../features/shift_line/presentation/controllers/roll_worker_bootstrap_controller.dart';
 import '../features/shift_line/presentation/screens/active_shift_line_picker_screen.dart';
 
 /// Top-level state-driven entry point. Decides between:
@@ -55,9 +56,14 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
     if (lifecycle != AppLifecycleState.resumed) return;
-    // Re-fetch the picker options on resume — the controller also drops
-    // any picker selections whose line disappeared in the meantime.
-    ref.read(activeShiftLineOptionsControllerProvider.notifier).refresh();
+    refreshLog('app resumed (bootstrap) → picker refresh + session restore');
+    // Re-fetch the picker rows on resume — a gap may have hidden an SSE
+    // event. Background refresh: updates rows in place, no full-screen
+    // loader. The controller also drops picker selections whose line
+    // disappeared in the meantime.
+    ref
+        .read(rollWorkerBootstrapControllerProvider.notifier)
+        .refresh(trigger: 'app-resume', background: true);
     // Re-discover every persisted session in parallel; stale tokens are
     // dropped silently, transient transport errors retain the id.
     ref.read(multiLineSessionRegistryProvider.notifier).restoreFromStorage();

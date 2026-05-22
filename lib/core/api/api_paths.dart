@@ -12,15 +12,23 @@ class ApiPaths {
 
   static const String _rollAppBase = '/api/v1/thermoforming-roll-app';
 
-  // ─── Active shift-line picker ────────────────────────────────────────────
+  // ─── Pre-login bootstrap (REST-authoritative picker) ─────────────────────
 
-  /// `GET {base}/shift-lines/active-options`.
+  /// `GET {base}/bootstrap`.
   /// Headers: X-Device-Key only. Reachable before roll-worker auth — does
-  /// NOT require an X-Session-Token. Returns the list of currently-ACTIVE
-  /// Thermoforming shift-lines that the operator app has opened against the
-  /// current shift.
-  static const String activeShiftLineOptions =
-      '$_rollAppBase/shift-lines/active-options';
+  /// NOT require an X-Session-Token. Read-only: creates no session and
+  /// mutates no production state. Returns ONE row per active thermoforming
+  /// machine, keyed by a stable `thermoformingLineId` (rows never appear /
+  /// disappear as operators come and go — they change state). This is the
+  /// authoritative source for the pre-login picker.
+  static const String rollWorkerBootstrap = '$_rollAppBase/bootstrap';
+
+  /// `GET {base}/events`.
+  /// Headers: X-Device-Key only. ONE global SSE stream for the whole
+  /// pre-login picker (not per-line). Every frame is only a "refresh now"
+  /// trigger — it carries no business state. The REST `/bootstrap` response
+  /// is the source of truth; on any frame the picker re-reads `/bootstrap`.
+  static const String rollWorkerEvents = '$_rollAppBase/events';
 
   // ─── Roll-worker authentication (multi-line batch) ────────────────────────
 
@@ -29,8 +37,7 @@ class ApiPaths {
   /// Atomic: any error rejects the whole batch and opens no session.
   /// Source of truth for new code; the legacy single-line auth endpoint
   /// below is retained for backward compatibility only.
-  static const String sessionsStartBatch =
-      '$_rollAppBase/sessions/start-batch';
+  static const String sessionsStartBatch = '$_rollAppBase/sessions/start-batch';
 
   // ─── Roll-worker per-shift-line session restore + logout ──────────────────
 
@@ -75,24 +82,34 @@ class ApiPaths {
   static String previousRollGrinding(int shiftLineId) =>
       '$_rollAppBase/shift-lines/$shiftLineId/previous-roll/grinding';
 
-  // ─── Product switch ───────────────────────────────────────────────────────
-  //
-  // NOTE: there is a documented BACKEND GAP for the allowed-products list
-  // (`/product-switch-options`). The product-switch _action_ endpoint below
-  // exists, but the Roll Worker app blocks the flow in UI until the picker
-  // gap closes. See plan §7 (Stage 7).
-
-  /// `POST {base}/shift-lines/{shiftLineId}/product-switch`.
-  /// Body: `{ "newProductTypeId": <int>, "currentRollWeightKg": <num> }`.
-  static String productSwitch(int shiftLineId) =>
-      '$_rollAppBase/shift-lines/$shiftLineId/product-switch';
-
   // ─── Roll label reprint ───────────────────────────────────────────────────
 
   /// `GET {base}/rolls/{generatedRollId}/reprint-label`.
   /// Looser session check (any active roll-worker session is accepted).
   static String reprintRollLabel(String generatedRollId) =>
       '$_rollAppBase/rolls/$generatedRollId/reprint-label';
+
+  // ─── Operator-dashboard SSE (cross-app realtime sync) ────────────────────
+  //
+  // SSE channel emitted by the operator app's palletizing-line backend, used
+  // by the Roll Worker app to reflect roll-state / active-product changes the
+  // operator triggers — see `docs/HANDOFF_ROLL_EMPLOYEE_APP.md`. This is the
+  // ONE permitted entry into the `/api/v1/palletizing-line/...` namespace
+  // because the SSE channel is the cross-app sync surface; no other path
+  // under that namespace may be added. Read-only stream — never mutates.
+  static const String _palletizingLineBase = '/api/v1/palletizing-line';
+
+  /// `GET {palletizing-line}/lines/{lineId}/operator-dashboard/events`.
+  ///
+  /// `lineId` is the **palletizing line id** carried in
+  /// `RollWorkerSession.palletizingLineId`. Headers: X-Device-Key,
+  /// X-Session-Token. Server emits `connected` once on subscribe, then
+  /// `operator-dashboard-changed` frames whenever the operator changes the
+  /// product or the mounted roll state. Heartbeats are `: ping` comments
+  /// every 25s; the emitter recycles after 5 minutes so the client must
+  /// reconnect.
+  static String operatorDashboardEvents(int lineId) =>
+      '$_palletizingLineBase/lines/$lineId/operator-dashboard/events';
 }
 
 /// Documented backend gaps. These intentionally have NO callable client in
@@ -101,11 +118,6 @@ class ApiPaths {
 /// Tracked in plan §4 / requirements §24.
 class BackendGapPaths {
   BackendGapPaths._();
-
-  /// §11 / §24 gap #2 — products allowed for product-switch on the line.
-  /// Suggested: `GET .../shift-lines/{shiftLineId}/product-switch-options`.
-  static const String productSwitchOptions =
-      'GAP: GET /api/v1/thermoforming-roll-app/shift-lines/{shiftLineId}/product-switch-options';
 
   /// §13 / §24 gap #3 — read-only current mounted roll on a line.
   /// Suggested: `GET .../shift-lines/{shiftLineId}/current-roll`.

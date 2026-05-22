@@ -12,7 +12,7 @@ import 'package:dio/dio.dart';
 /// ```
 ///
 /// Only roll-operation endpoints carry the session token (scan, previous-roll,
-/// product-switch, reprint). Auth (`roll-worker-auth`), session discovery
+/// reprint). Auth (`roll-worker-auth`), session discovery
 /// (`roll-worker-session/current`), and logout (token in body) MUST NOT use
 /// this — they don't tag the request, so the header is omitted.
 ///

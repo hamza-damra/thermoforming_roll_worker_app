@@ -33,6 +33,12 @@ dependencies:
   hive_flutter: ^1.1.0
   uuid: ^4.3.3
 
+  # Line-takeover alert (sound + vibration). Both are guarded — a missing
+  # sound asset or vibration motor falls back gracefully (see
+  # core/services/takeover_alert_service.dart).
+  audioplayers: ^6.0.0
+  vibration: ^2.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -47,3 +53,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
+
+  assets:
+    - assets/sounds/

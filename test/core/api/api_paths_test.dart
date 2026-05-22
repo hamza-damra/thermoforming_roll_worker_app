@@ -55,19 +55,27 @@ void main() {
       );
     });
 
-    test('product-switch path', () {
-      expect(
-        ApiPaths.productSwitch(shiftLineId),
-        '/api/v1/thermoforming-roll-app/shift-lines/800/product-switch',
-      );
-    });
-
     test('reprint-label path encodes generatedRollId', () {
       expect(
         ApiPaths.reprintRollLabel(generatedRollId),
         '/api/v1/thermoforming-roll-app/rolls/777000000001/reprint-label',
       );
     });
+
+    test(
+      'operator-dashboard SSE path lives under the palletizing-line namespace',
+      () {
+        // This is the ONE exception to the "no palletizing-line paths in the
+        // Roll Worker app" rule — the SSE channel is the documented cross-app
+        // sync surface (handoff: docs/HANDOFF_ROLL_EMPLOYEE_APP.md §2). The
+        // forbidden-fragment check below explicitly carves this out.
+        const int palletizingLineId = 10;
+        expect(
+          ApiPaths.operatorDashboardEvents(palletizingLineId),
+          '/api/v1/palletizing-line/lines/10/operator-dashboard/events',
+        );
+      },
+    );
 
     test('every path is under the roll-app namespace', () {
       final List<String> paths = <String>[
@@ -78,7 +86,6 @@ void main() {
         ApiPaths.previousRollFullConsume(shiftLineId),
         ApiPaths.previousRollReturn(shiftLineId),
         ApiPaths.previousRollGrinding(shiftLineId),
-        ApiPaths.productSwitch(shiftLineId),
         ApiPaths.reprintRollLabel(generatedRollId),
       ];
       for (final String path in paths) {
@@ -108,7 +115,6 @@ void main() {
         ApiPaths.previousRollFullConsume(shiftLineId),
         ApiPaths.previousRollReturn(shiftLineId),
         ApiPaths.previousRollGrinding(shiftLineId),
-        ApiPaths.productSwitch(shiftLineId),
         ApiPaths.reprintRollLabel(generatedRollId),
       ];
       for (final String path in paths) {

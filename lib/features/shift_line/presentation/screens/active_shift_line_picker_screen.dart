@@ -13,18 +13,23 @@ import '../../../../core/widgets/inline_error.dart';
 import '../../../roll_worker_auth/presentation/controllers/batch_auth_controller.dart';
 import '../../../roll_worker_auth/presentation/controllers/batch_auth_state.dart';
 import '../../../roll_worker_auth/presentation/screens/pin_screen.dart';
-import '../../domain/entities/active_shift_line_option.dart';
-import '../controllers/active_shift_line_options_controller.dart';
-import '../controllers/active_shift_line_options_state.dart';
+import '../../domain/entities/roll_worker_bootstrap_line.dart';
+import '../controllers/roll_worker_bootstrap_controller.dart';
+import '../controllers/roll_worker_bootstrap_state.dart';
 import '../controllers/selected_shift_line_provider.dart';
-import '../widgets/conflict_badge.dart';
+import '../widgets/line_unavailable_dialog.dart';
+import '../widgets/line_waiting_status.dart';
 
-/// Pre-login picker for currently-ACTIVE Thermoforming shift-lines.
+/// Pre-login picker for thermoforming machines (the `/bootstrap` rows).
 ///
-/// Multi-select: the worker may tick 1..N lines and proceed with a single
-/// PIN entry against the multi-line batch session-start endpoint. After a
-/// per-line conflict, the offending id is dropped from the selection and
-/// the row briefly highlighted so the worker can adjust and retry.
+/// REST-authoritative: every machine has a **stable, always-visible row**
+/// keyed by `thermoformingLineId`. A row is tappable iff the backend reports
+/// it `selectable`; otherwise it stays visible as a waiting / unavailable
+/// row. Background refreshes (SSE-triggered / poll / app-resume) update rows
+/// in place — no full-screen loader.
+///
+/// Multi-select: the worker may tick 1..N selectable rows and proceed with a
+/// single PIN entry against the multi-line batch session-start endpoint.
 class ActiveShiftLinePickerScreen extends ConsumerStatefulWidget {
   const ActiveShiftLinePickerScreen({super.key});
 
@@ -39,7 +44,6 @@ class ActiveShiftLinePickerScreen extends ConsumerStatefulWidget {
   static const String retryLabel = 'إعادة المحاولة';
 
   // Card labels.
-  static const String thermoformingLineLabel = 'خط التشكيل';
   static const String palletizingLineLabel = 'خط الطبليات المرتبط';
   static const String currentProductLabel = 'المنتج الحالي';
   static const String operatorLabel = 'المشغّل';
@@ -49,7 +53,12 @@ class ActiveShiftLinePickerScreen extends ConsumerStatefulWidget {
   static const String currentWeightLabel = 'الوزن الحالي';
   static const String missingValue = '—';
 
-  // CTA copy (handoff §5.1).
+  // Placeholder values shown on a non-selectable (waiting) machine row when
+  // the backend has not yet reported a product / operator.
+  static const String waitingProduct = 'بانتظار المنتج';
+  static const String waitingOperator = 'لا يوجد مشغّل حالياً';
+
+  // CTA copy.
   static const String ctaEmpty = 'اختر على الأقل خطاً واحداً';
   static const String ctaSingle = 'متابعة';
   static String ctaMultiple(int n) => 'متابعة بـ $n خطوط';
@@ -88,8 +97,8 @@ class _ActiveShiftLinePickerScreenState
   Future<void> _onRefresh() async {
     setState(() => _justConflicted = const <int>{});
     await ref
-        .read(activeShiftLineOptionsControllerProvider.notifier)
-        .refresh();
+        .read(rollWorkerBootstrapControllerProvider.notifier)
+        .refresh(trigger: 'manual');
   }
 
   Future<void> _onContinue() async {
@@ -121,11 +130,11 @@ class _ActiveShiftLinePickerScreenState
                 .read(pickerShiftLineSelectionProvider)
                 .difference(conflicts),
           );
-      // Refresh the active-options so any newly-disappeared row updates.
+      // Refresh the bootstrap rows so any newly-changed row updates.
       // ignore: unawaited_futures
       ref
-          .read(activeShiftLineOptionsControllerProvider.notifier)
-          .refresh();
+          .read(rollWorkerBootstrapControllerProvider.notifier)
+          .refresh(trigger: 'conflict-retry', background: true);
       setState(() => _justConflicted = conflicts);
       ScaffoldMessenger.maybeOf(context)
         ?..hideCurrentSnackBar()
@@ -141,8 +150,8 @@ class _ActiveShiftLinePickerScreenState
 
   @override
   Widget build(BuildContext context) {
-    final ActiveShiftLineOptionsState state = ref.watch(
-      activeShiftLineOptionsControllerProvider,
+    final RollWorkerBootstrapState state = ref.watch(
+      rollWorkerBootstrapControllerProvider,
     );
     final Set<int> selection = ref.watch(pickerShiftLineSelectionProvider);
 
@@ -162,30 +171,31 @@ class _ActiveShiftLinePickerScreenState
 
   Widget _buildBody(
     BuildContext context,
-    ActiveShiftLineOptionsState state,
+    RollWorkerBootstrapState state,
     Set<int> selection,
   ) {
     return switch (state) {
-      ActiveShiftLineOptionsInitial() => const _LoadingView(),
-      ActiveShiftLineOptionsLoading(:final previous) => previous.isEmpty
+      // Full-screen loader is reserved for the very first load only.
+      RollWorkerBootstrapInitial() => const _LoadingView(),
+      RollWorkerBootstrapLoading(:final previous) => previous.isEmpty
           ? const _LoadingView()
-          : _OptionsListView(
-              options: previous,
+          : _LinesListView(
+              lines: previous,
               selection: selection,
               conflictedIds: _justConflicted,
               onToggle: _onToggle,
               showRefreshingHeader: true,
             ),
-      ActiveShiftLineOptionsLoaded(:final options) => options.isEmpty
+      RollWorkerBootstrapLoaded(:final lines) => lines.isEmpty
           ? const _EmptyView()
-          : _OptionsListView(
-              options: options,
+          : _LinesListView(
+              lines: lines,
               selection: selection,
               conflictedIds: _justConflicted,
               onToggle: _onToggle,
               showRefreshingHeader: false,
             ),
-      ActiveShiftLineOptionsFailureState(:final failure, :final previous) =>
+      RollWorkerBootstrapFailureState(:final failure, :final previous) =>
         _FailureView(
           failure: arabicMessageFor(failure),
           previous: previous,
@@ -290,8 +300,8 @@ class _EmptyView extends StatelessWidget {
               label: ActiveShiftLinePickerScreen.retryLabel,
               icon: Icons.refresh_rounded,
               onPressed: () => ref
-                  .read(activeShiftLineOptionsControllerProvider.notifier)
-                  .refresh(),
+                  .read(rollWorkerBootstrapControllerProvider.notifier)
+                  .refresh(trigger: 'manual'),
             );
           },
         ),
@@ -300,16 +310,16 @@ class _EmptyView extends StatelessWidget {
   }
 }
 
-class _OptionsListView extends StatelessWidget {
-  const _OptionsListView({
-    required this.options,
+class _LinesListView extends StatelessWidget {
+  const _LinesListView({
+    required this.lines,
     required this.selection,
     required this.conflictedIds,
     required this.onToggle,
     required this.showRefreshingHeader,
   });
 
-  final List<ActiveShiftLineOption> options;
+  final List<RollWorkerBootstrapLine> lines;
   final Set<int> selection;
   final Set<int> conflictedIds;
   final ValueChanged<int> onToggle;
@@ -320,18 +330,25 @@ class _OptionsListView extends StatelessWidget {
     final int leadingCount = (showRefreshingHeader ? 1 : 0) + 1; // header
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: options.length + leadingCount,
+      itemCount: lines.length + leadingCount,
       separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         if (index == 0) return const _PickerHeader();
         if (showRefreshingHeader && index == 1) {
           return const _RefreshingHeader();
         }
-        final ActiveShiftLineOption option = options[index - leadingCount];
+        final RollWorkerBootstrapLine line = lines[index - leadingCount];
         return _ShiftLineCard(
-          option: option,
-          selected: selection.contains(option.shiftLineId),
-          conflicted: conflictedIds.contains(option.shiftLineId),
+          // Stable machine-keyed row id — NEVER shiftLineId (null until
+          // an operator activates the line).
+          key: ValueKey<int>(line.thermoformingLineId),
+          line: line,
+          selected:
+              line.shiftLineId != null &&
+              selection.contains(line.shiftLineId),
+          conflicted:
+              line.shiftLineId != null &&
+              conflictedIds.contains(line.shiftLineId),
           onToggle: onToggle,
         );
       },
@@ -344,9 +361,9 @@ class _PickerHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return const Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: const [
+      children: [
         Text(
           ActiveShiftLinePickerScreen.headerTitle,
           style: AppTextStyles.h2,
@@ -395,7 +412,7 @@ class _FailureView extends StatelessWidget {
   });
 
   final String failure;
-  final List<ActiveShiftLineOption> previous;
+  final List<RollWorkerBootstrapLine> previous;
   final Set<int> selection;
   final Set<int> conflictedIds;
   final VoidCallback onRetry;
@@ -416,11 +433,16 @@ class _FailureView extends StatelessWidget {
         ),
         if (previous.isNotEmpty) ...[
           const SizedBox(height: 16),
-          for (final ActiveShiftLineOption option in previous) ...[
+          for (final RollWorkerBootstrapLine line in previous) ...[
             _ShiftLineCard(
-              option: option,
-              selected: selection.contains(option.shiftLineId),
-              conflicted: conflictedIds.contains(option.shiftLineId),
+              key: ValueKey<int>(line.thermoformingLineId),
+              line: line,
+              selected:
+                  line.shiftLineId != null &&
+                  selection.contains(line.shiftLineId),
+              conflicted:
+                  line.shiftLineId != null &&
+                  conflictedIds.contains(line.shiftLineId),
               onToggle: onToggle,
             ),
             const SizedBox(height: 12),
@@ -433,125 +455,196 @@ class _FailureView extends StatelessWidget {
 
 class _ShiftLineCard extends StatelessWidget {
   const _ShiftLineCard({
-    required this.option,
+    super.key,
+    required this.line,
     required this.selected,
     required this.conflicted,
     required this.onToggle,
   });
 
-  final ActiveShiftLineOption option;
+  final RollWorkerBootstrapLine line;
   final bool selected;
   final bool conflicted;
   final ValueChanged<int> onToggle;
 
+  String get _thermoLine {
+    final String name = line.lineName.trim();
+    final String code = line.lineCode.trim();
+    if (name.isNotEmpty && code.isNotEmpty) return '$name ($code)';
+    if (name.isNotEmpty) return name;
+    if (code.isNotEmpty) return code;
+    return 'ماكنة ${line.machineNumber ?? line.thermoformingLineId}';
+  }
+
+  String get _palletizingLine {
+    final String name = (line.palletizingLineName ?? '').trim();
+    final String code = (line.palletizingLineCode ?? '').trim();
+    if (name.isNotEmpty && code.isNotEmpty) return '$name ($code)';
+    if (name.isNotEmpty) return name;
+    if (code.isNotEmpty) return code;
+    return ActiveShiftLinePickerScreen.missingValue;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final String thermoLine =
-        '${option.thermoformingLineName} (${option.thermoformingLineCode})';
-    final String palletizingLine =
-        '${option.palletizingLineName} (${option.palletizingLineCode})';
+    final bool selectable = line.selectable && line.shiftLineId != null;
+
+    // On a waiting row, fall back to friendly placeholders rather than the
+    // bare "—" so the worker reads *why* the row is idle.
     final String product =
-        option.currentProductTypeName ??
-        ActiveShiftLinePickerScreen.missingValue;
+        line.currentProductTypeName ??
+        (selectable
+            ? ActiveShiftLinePickerScreen.missingValue
+            : ActiveShiftLinePickerScreen.waitingProduct);
     final String operator =
-        option.operatorName ?? ActiveShiftLinePickerScreen.missingValue;
+        line.activeOperatorName ??
+        (selectable
+            ? ActiveShiftLinePickerScreen.missingValue
+            : ActiveShiftLinePickerScreen.waitingOperator);
+
+    // Waiting rows stay clean white cards — only their secondary text is
+    // softly muted, never the whole card.
+    final TextStyle? mutedValue = selectable
+        ? null
+        : AppTextStyles.bodyLarge.copyWith(color: AppColors.textSecondary);
 
     final BoxBorder? border = conflicted
         ? Border.all(color: AppColors.warning, width: 2)
         : null;
 
-    return InkWell(
-      onTap: option.selectable ? () => onToggle(option.shiftLineId) : null,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: border == null
-            ? null
-            : BoxDecoration(
-                border: border,
-                borderRadius: BorderRadius.circular(12),
-              ),
-        child: AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
+    final Widget card = Container(
+      decoration: border == null
+          ? null
+          : BoxDecoration(
+              border: border,
+              borderRadius: BorderRadius.circular(14),
+            ),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                if (selectable)
                   Checkbox(
                     value: selected,
-                    onChanged: option.selectable
-                        ? (_) => onToggle(option.shiftLineId)
-                        : null,
-                  ),
-                  Expanded(
-                    child: Text(thermoLine, style: AppTextStyles.h3),
-                  ),
-                ],
-              ),
-              if (option.hasOtherActiveOperator) ...[
-                const SizedBox(height: 4),
-                ConflictBadge(
-                  operatorName: option.existingSessionOperatorName ?? '',
+                    onChanged: (_) => onToggle(line.shiftLineId!),
+                  )
+                else
+                  const SizedBox(width: 4, height: 48),
+                Expanded(
+                  child: Text(_thermoLine, style: AppTextStyles.h3),
                 ),
               ],
-              const SizedBox(height: 8),
-              InfoRow(
-                label: ActiveShiftLinePickerScreen.palletizingLineLabel,
-                value: palletizingLine,
-                icon: Icons.local_shipping_rounded,
+            ),
+            if (!selectable) ...[
+              const SizedBox(height: 2),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: _StatusPill(
+                  label: LineWaitingStatus.pillLabelFor(line),
+                ),
               ),
-              InfoRow(
-                label: ActiveShiftLinePickerScreen.currentProductLabel,
-                value: product,
-                icon: Icons.category_rounded,
-              ),
-              InfoRow(
-                label: ActiveShiftLinePickerScreen.operatorLabel,
-                value: operator,
-                icon: Icons.person_rounded,
-              ),
-              if (option.hasMountedRoll) ...[
-                const Divider(height: 24),
-                const Text(
-                  ActiveShiftLinePickerScreen.currentRollHeading,
-                  style: AppTextStyles.h3,
-                ),
-                const SizedBox(height: 4),
-                InfoRow(
-                  label: ActiveShiftLinePickerScreen.rollIdLabel,
-                  value:
-                      option.currentRollGeneratedRollId ??
-                      ActiveShiftLinePickerScreen.missingValue,
-                  icon: Icons.qr_code_rounded,
-                ),
-                InfoRow(
-                  label: ActiveShiftLinePickerScreen.rollTypeLabel,
-                  value:
-                      option.currentRollTypeName ??
-                      option.currentRollTypeCode ??
-                      ActiveShiftLinePickerScreen.missingValue,
-                  icon: Icons.label_outline_rounded,
-                ),
-                InfoRow(
-                  label: ActiveShiftLinePickerScreen.currentWeightLabel,
-                  value: ActiveShiftLinePickerScreen._formatWeight(
-                    option.currentRollLastKnownWeightKg,
-                  ),
-                  icon: Icons.scale_rounded,
-                ),
-              ],
-              if (!option.selectable &&
-                  option.blockingReason != null &&
-                  option.blockingReason!.trim().isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  option.blockingReason!,
-                  style: AppTextStyles.label,
-                  textAlign: TextAlign.start,
-                ),
-              ],
             ],
-          ),
+            const SizedBox(height: 8),
+            InfoRow(
+              label: ActiveShiftLinePickerScreen.palletizingLineLabel,
+              value: _palletizingLine,
+              icon: Icons.local_shipping_rounded,
+            ),
+            InfoRow(
+              label: ActiveShiftLinePickerScreen.currentProductLabel,
+              value: product,
+              icon: Icons.category_rounded,
+              valueStyle: mutedValue,
+            ),
+            InfoRow(
+              label: ActiveShiftLinePickerScreen.operatorLabel,
+              value: operator,
+              icon: Icons.person_rounded,
+              valueStyle: mutedValue,
+            ),
+            if (line.hasMountedRoll) ...[
+              const Divider(height: 24),
+              const Text(
+                ActiveShiftLinePickerScreen.currentRollHeading,
+                style: AppTextStyles.h3,
+              ),
+              const SizedBox(height: 4),
+              InfoRow(
+                label: ActiveShiftLinePickerScreen.rollIdLabel,
+                value:
+                    line.currentRollGeneratedRollId ??
+                    ActiveShiftLinePickerScreen.missingValue,
+                icon: Icons.qr_code_rounded,
+              ),
+              InfoRow(
+                label: ActiveShiftLinePickerScreen.rollTypeLabel,
+                value:
+                    line.currentRollTypeName ??
+                    line.currentRollTypeCode ??
+                    ActiveShiftLinePickerScreen.missingValue,
+                icon: Icons.label_outline_rounded,
+              ),
+              InfoRow(
+                label: ActiveShiftLinePickerScreen.currentWeightLabel,
+                value: ActiveShiftLinePickerScreen._formatWeight(
+                  line.currentRollLastKnownWeightKg,
+                ),
+                icon: Icons.scale_rounded,
+              ),
+            ],
+          ],
         ),
+      ),
+    );
+
+    // Every row is tappable. A selectable row toggles selection; a waiting
+    // row opens the blocking dialog (it never toggles, never selects).
+    return InkWell(
+      onTap: selectable
+          ? () => onToggle(line.shiftLineId!)
+          : () => showLineUnavailableDialog(context, line: line),
+      borderRadius: BorderRadius.circular(14),
+      child: card,
+    );
+  }
+}
+
+/// Small, neutral status pill rendered on a non-selectable machine row.
+///
+/// Deliberately calm — a soft grey pill, not a full-width orange warning
+/// strip — so waiting rows stay clean and the screen never looks broken.
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.schedule_rounded,
+            size: 14,
+            color: AppColors.textSecondary,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppTextStyles.caption.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

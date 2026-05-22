@@ -38,8 +38,6 @@ class _GrindingDialog extends ConsumerStatefulWidget {
 
   static const String title = 'تأكيد إرسال المتبقي للجرش';
   static const String body = 'هل تريد إرسال الوزن المتبقي للجرش؟';
-  static const String warning =
-      'سيتم إرسال هذه البقايا إلى خط الجرش، هل أنت متأكد؟';
   static const String submit = 'تأكيد الجرش';
   static const String cancel = 'إلغاء';
   static const String validationOverflow =
@@ -117,39 +115,6 @@ class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(_GrindingDialog.body, style: AppTextStyles.bodyLarge),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppColors.offlineBg,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: AppColors.warning.withValues(alpha: 0.4),
-                ),
-              ),
-              child: const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    size: 20,
-                    color: AppColors.offline,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _GrindingDialog.warning,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.offline,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
             const SizedBox(height: 16),
             RemainingWeightField(
               controller: _weightController,

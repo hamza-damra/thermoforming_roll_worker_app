@@ -2,6 +2,10 @@
 
 A new Flutter project.
 
+## Business rules
+
+Product switching is intentionally not available in the Roll Worker App. Product switching is owned by the Operator / Palletizing Operator App. This app only handles roll worker flows (session, scan, close roll, labels) and observes operator-driven product/roll updates via SSE where implemented.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.

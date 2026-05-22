@@ -11,17 +11,20 @@ import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entit
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/roll_worker_auth_repository.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
-import 'package:thermoforming_roll_worker/features/shift_line/data/active_shift_line_options_providers.dart';
-import 'package:thermoforming_roll_worker/features/shift_line/domain/active_shift_line_options_repository.dart';
+import 'package:thermoforming_roll_worker/features/shift_line/data/roll_worker_bootstrap_providers.dart';
+import 'package:thermoforming_roll_worker/features/shift_line/data/roll_worker_lines_sse_providers.dart';
+import 'package:thermoforming_roll_worker/features/shift_line/domain/entities/roll_worker_bootstrap_line.dart';
+import 'package:thermoforming_roll_worker/features/shift_line/domain/roll_worker_bootstrap_repository.dart';
 import 'package:thermoforming_roll_worker/features/home/data/shift_line_summary_providers.dart';
 import 'package:thermoforming_roll_worker/features/home/domain/entities/shift_line_summary.dart';
 import 'package:thermoforming_roll_worker/features/home/domain/shift_line_summary_repository.dart';
-import 'package:thermoforming_roll_worker/features/shift_line/domain/entities/active_shift_line_option.dart';
+
+import '../features/shift_line/fake_roll_worker_lines_sse_client.dart';
 
 class _MockAuthRepo extends Mock implements RollWorkerAuthRepository {}
 
-class _MockOptionsRepo extends Mock
-    implements ActiveShiftLineOptionsRepository {}
+class _MockBootstrapRepo extends Mock
+    implements RollWorkerBootstrapRepository {}
 
 class _MockSummaryRepo extends Mock implements ShiftLineSummaryRepository {}
 
@@ -40,6 +43,7 @@ ShiftLineSummaryRepository _summaryRepo() {
           thermoformingLineName: 'خط التشكيل 1',
           completedRollsInShift: 0,
           completedRollsByCurrentWorker: 0,
+          activeOperatorName: 'مشغل التشكيل',
         ),
       );
     },
@@ -47,13 +51,26 @@ ShiftLineSummaryRepository _summaryRepo() {
   return repo;
 }
 
-ActiveShiftLineOptionsRepository _emptyOptionsRepo() {
-  final repo = _MockOptionsRepo();
+RollWorkerBootstrapRepository _emptyBootstrapRepo() {
+  final repo = _MockBootstrapRepo();
   when(repo.fetch).thenAnswer(
-    (_) async =>
-        const ActiveShiftLineOptionsSuccess(<ActiveShiftLineOption>[]),
+    (_) async => const RollWorkerBootstrapSuccess(<RollWorkerBootstrapLine>[]),
   );
   return repo;
+}
+
+/// Overrides for the pre-login bootstrap picker: an empty `/bootstrap` repo
+/// plus a fake SSE client so no real socket / reconnect timers leak into the
+/// widget test.
+List<Override> _pickerOverrides() {
+  final sse = FakeRollWorkerLinesSseClient();
+  addTearDown(sse.dispose);
+  return <Override>[
+    rollWorkerBootstrapRepositoryProvider.overrideWithValue(
+      _emptyBootstrapRepo(),
+    ),
+    rollWorkerLinesSseClientProvider.overrideWithValue(sse),
+  ];
 }
 
 const AppConfig _testConfig = AppConfig(
@@ -114,9 +131,7 @@ void main() {
             multiLineSessionRegistryProvider.overrideWith(
               () => _StaticRegistry(_empty()),
             ),
-            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
-              _emptyOptionsRepo(),
-            ),
+            ..._pickerOverrides(),
           ],
           child: const RollWorkerApp(),
         ),
@@ -144,9 +159,7 @@ void main() {
             ),
             rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
             shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
-            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
-              _emptyOptionsRepo(),
-            ),
+            ..._pickerOverrides(),
           ],
           child: const RollWorkerApp(),
         ),
@@ -178,9 +191,7 @@ void main() {
             ),
             rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
             shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
-            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
-              _emptyOptionsRepo(),
-            ),
+            ..._pickerOverrides(),
           ],
           child: const RollWorkerApp(),
         ),
@@ -213,9 +224,7 @@ void main() {
             ),
             rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
             shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
-            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
-              _emptyOptionsRepo(),
-            ),
+            ..._pickerOverrides(),
           ],
           child: Builder(
             builder: (context) {
@@ -271,9 +280,7 @@ void main() {
             ),
             rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
             shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
-            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
-              _emptyOptionsRepo(),
-            ),
+            ..._pickerOverrides(),
           ],
           child: Builder(
             builder: (context) {
@@ -311,9 +318,7 @@ void main() {
             ),
             rollWorkerAuthRepositoryProvider.overrideWithValue(_MockAuthRepo()),
             shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
-            activeShiftLineOptionsRepositoryProvider.overrideWithValue(
-              _emptyOptionsRepo(),
-            ),
+            ..._pickerOverrides(),
           ],
           child: Builder(
             builder: (context) {

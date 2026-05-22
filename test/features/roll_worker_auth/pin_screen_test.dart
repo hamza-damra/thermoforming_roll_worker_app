@@ -32,6 +32,7 @@ ShiftLineSummaryRepository _summaryRepo() {
         thermoformingLineName: 'خط التشكيل 1',
         completedRollsInShift: 0,
         completedRollsByCurrentWorker: 0,
+        activeOperatorName: 'مشغل التشكيل',
       ),
     );
   });

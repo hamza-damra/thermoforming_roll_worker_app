@@ -1,0 +1,3 @@
+PLACEHOLDER — replace with a real MP3 alert tone. See README.md in this folder.
+This file is intentionally not valid audio; TakeoverAlertService falls back to
+SystemSound.play(SystemSoundType.alert) when playback fails.
