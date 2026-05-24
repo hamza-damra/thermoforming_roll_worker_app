@@ -20,6 +20,7 @@ import 'package:thermoforming_roll_worker/features/printer/core/printing_excepti
 import 'package:thermoforming_roll_worker/features/printer/data/printer_providers.dart';
 import 'package:thermoforming_roll_worker/features/printer/domain/entities/label_preset.dart';
 import 'package:thermoforming_roll_worker/features/printer/domain/entities/printer_config.dart';
+import 'package:thermoforming_roll_worker/features/printer/domain/entities/roll_label_data.dart';
 import 'package:thermoforming_roll_worker/features/printer/domain/printer_repository.dart';
 import 'package:thermoforming_roll_worker/features/printer/pipeline/printer_transport.dart';
 
@@ -38,6 +39,7 @@ class _FakePrinterTransport implements PrinterTransport {
     required String value,
     required LabelPreset preset,
     int copies = 1,
+    RollLabelData? labelData,
     String? topText,
     String? bottomText,
     String? sideText,
@@ -53,7 +55,7 @@ class _FakePrinterTransport implements PrinterTransport {
 const int kShiftLineId = 800;
 const String kRollId = '777000000001';
 
-RollLabel _label() => const RollLabel(
+RollLabel _label() => RollLabel(
   generatedRollId: kRollId,
   prefixSnapshot: '777',
   serialNumber: 1,
@@ -69,6 +71,9 @@ RollLabel _label() => const RollLabel(
   productionKind: 'NORMAL',
   consumptionState: RollConsumptionState.partiallyReturned,
   lastKnownWeightKg: 75.5,
+  // Stable fixed timestamp so the new strict-timestamp gate in the
+  // controller doesn't trip during dialog widget tests.
+  createdAt: DateTime.utc(2026, 5, 11, 14, 30),
 );
 
 const PrinterConfig _printer = PrinterConfig(

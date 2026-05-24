@@ -57,6 +57,105 @@ class SummaryMountedRoll {
   );
 }
 
+/// One closed roll in the current `RollWorkerSession`, returned by the
+/// `/shift-lines/{shiftLineId}/summary` endpoint in the `consumedRolls`
+/// list (capped at 10, newest-first).
+///
+/// `closedReason` and `remainderAction` are raw wire codes
+/// (`FULL_CONSUMPTION` / `PARTIAL_RETURN` / `PARTIAL_GRINDING` and
+/// `NONE` / `RETURN` / `GRINDING`); Arabic translation happens at render
+/// time. `endedAtDisplay` is already Arabic-formatted by the backend.
+@immutable
+class ConsumedRoll {
+  const ConsumedRoll({
+    required this.consumptionItemId,
+    required this.rollId,
+    required this.generatedRollId,
+    required this.rollTypeCode,
+    required this.rollTypeName,
+    required this.startWeightKg,
+    required this.endWeightKg,
+    required this.consumedWeightKg,
+    required this.closedReason,
+    required this.remainderAction,
+    required this.endedAt,
+    required this.endedAtDisplay,
+    this.remainingWeightKg,
+    this.reprintAvailable,
+    this.reprintLabelType,
+    this.labelTimestamp,
+  });
+
+  final int consumptionItemId;
+  final int rollId;
+  final String generatedRollId;
+  final String rollTypeCode;
+  final String rollTypeName;
+  final double startWeightKg;
+  final double endWeightKg;
+  final double consumedWeightKg;
+  final double? remainingWeightKg;
+  final String closedReason;
+  final String remainderAction;
+  final DateTime endedAt;
+  final String endedAtDisplay;
+
+  /// Backend authoritative reprint flag. `null` on older backends — the
+  /// UI falls back to a `remainderAction`-based inference in that case.
+  final bool? reprintAvailable;
+
+  /// `RETURN_REMAINING` | `GRINDING_REMAINING`. Drives the GRINDING scrap-
+  /// icon switch in the renderer. `null` on older backends or for non-
+  /// remainder rolls.
+  final String? reprintLabelType;
+
+  /// Backend-authoritative timestamp to print on the label's
+  /// weekday/date/time band. Never replace with device time.
+  final DateTime? labelTimestamp;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is ConsumedRoll &&
+        other.consumptionItemId == consumptionItemId &&
+        other.rollId == rollId &&
+        other.generatedRollId == generatedRollId &&
+        other.rollTypeCode == rollTypeCode &&
+        other.rollTypeName == rollTypeName &&
+        other.startWeightKg == startWeightKg &&
+        other.endWeightKg == endWeightKg &&
+        other.consumedWeightKg == consumedWeightKg &&
+        other.remainingWeightKg == remainingWeightKg &&
+        other.closedReason == closedReason &&
+        other.remainderAction == remainderAction &&
+        other.endedAt == endedAt &&
+        other.endedAtDisplay == endedAtDisplay &&
+        other.reprintAvailable == reprintAvailable &&
+        other.reprintLabelType == reprintLabelType &&
+        other.labelTimestamp == labelTimestamp;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    consumptionItemId,
+    rollId,
+    generatedRollId,
+    rollTypeCode,
+    rollTypeName,
+    startWeightKg,
+    endWeightKg,
+    consumedWeightKg,
+    remainingWeightKg,
+    closedReason,
+    remainderAction,
+    endedAt,
+    endedAtDisplay,
+    reprintAvailable,
+    reprintLabelType,
+    labelTimestamp,
+  );
+}
+
 /// Active product on the line — usually hydrated from operator-dashboard SSE
 /// because the REST summary snapshot may not yet expose it.
 @immutable
@@ -125,8 +224,9 @@ class ShiftLineSummary {
     required this.shiftLineId,
     required this.thermoformingLineCode,
     required this.thermoformingLineName,
-    required this.completedRollsInShift,
+    required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
+    this.consumedRolls = const <ConsumedRoll>[],
     this.mountedRoll,
     this.activeProduct,
     this.returnedRemainingRoll,
@@ -148,12 +248,19 @@ class ShiftLineSummary {
   /// Human-readable line name. e.g. `"خط التشكيل 1"`.
   final String thermoformingLineName;
 
-  /// Total rolls closed on this shift-line in the current operator shift,
-  /// regardless of which worker closed them.
-  final int completedRollsInShift;
+  /// Rolls closed in the current `RollWorkerSession` (session-scoped).
+  /// Resets to 0 on each new login to the same shift-line.
+  final int completedRollsInSession;
 
-  /// Subset of [completedRollsInShift] closed by the current session's worker.
+  /// Kept for backend contract continuity — currently equal to
+  /// [completedRollsInSession] since a session is by definition tied to one
+  /// worker. The UI may hide the "منك" sub-line when both are equal.
   final int completedRollsByCurrentWorker;
+
+  /// Latest closed rolls in the current session, newest-first, capped at 10
+  /// by the backend. Always taken straight from the freshest REST response —
+  /// never accumulated or cached across sessions.
+  final List<ConsumedRoll> consumedRolls;
 
   /// Currently mounted roll, or `null` when nothing is mounted.
   final SummaryMountedRoll? mountedRoll;
@@ -202,8 +309,9 @@ class ShiftLineSummary {
     int? shiftLineId,
     String? thermoformingLineCode,
     String? thermoformingLineName,
-    int? completedRollsInShift,
+    int? completedRollsInSession,
     int? completedRollsByCurrentWorker,
+    List<ConsumedRoll>? consumedRolls,
     SummaryMountedRoll? mountedRoll,
     SummaryActiveProduct? activeProduct,
     ReturnedRemainingRoll? returnedRemainingRoll,
@@ -228,10 +336,11 @@ class ShiftLineSummary {
           thermoformingLineCode ?? this.thermoformingLineCode,
       thermoformingLineName:
           thermoformingLineName ?? this.thermoformingLineName,
-      completedRollsInShift:
-          completedRollsInShift ?? this.completedRollsInShift,
+      completedRollsInSession:
+          completedRollsInSession ?? this.completedRollsInSession,
       completedRollsByCurrentWorker:
           completedRollsByCurrentWorker ?? this.completedRollsByCurrentWorker,
+      consumedRolls: consumedRolls ?? this.consumedRolls,
       mountedRoll: clearMountedRoll ? null : (mountedRoll ?? this.mountedRoll),
       activeProduct: clearActiveProduct
           ? null
@@ -264,8 +373,9 @@ class ShiftLineSummary {
         other.shiftLineId == shiftLineId &&
         other.thermoformingLineCode == thermoformingLineCode &&
         other.thermoformingLineName == thermoformingLineName &&
-        other.completedRollsInShift == completedRollsInShift &&
+        other.completedRollsInSession == completedRollsInSession &&
         other.completedRollsByCurrentWorker == completedRollsByCurrentWorker &&
+        listEquals(other.consumedRolls, consumedRolls) &&
         other.mountedRoll == mountedRoll &&
         other.activeProduct == activeProduct &&
         other.returnedRemainingRoll == returnedRemainingRoll &&
@@ -283,8 +393,9 @@ class ShiftLineSummary {
     shiftLineId,
     thermoformingLineCode,
     thermoformingLineName,
-    completedRollsInShift,
+    completedRollsInSession,
     completedRollsByCurrentWorker,
+    Object.hashAll(consumedRolls),
     mountedRoll,
     activeProduct,
     returnedRemainingRoll,

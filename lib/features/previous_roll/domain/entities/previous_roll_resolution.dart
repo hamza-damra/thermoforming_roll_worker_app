@@ -74,6 +74,8 @@ class PreviousRollResolution {
     required this.remainderAction,
     required this.eventType,
     required this.reprintAvailable,
+    this.labelTimestamp,
+    this.reprintLabelType,
   });
 
   final int rollId;
@@ -93,6 +95,16 @@ class PreviousRollResolution {
   /// the reprint button. Stage 6 only tracks the flag.
   final bool reprintAvailable;
 
+  /// Backend-authoritative timestamp to print on the remainder label
+  /// (auto-print path). Null when the backend has not yet exposed it —
+  /// the auto-print path then falls through to `/reprint-label`'s
+  /// `createdAt`, or aborts with a missing-field error.
+  final DateTime? labelTimestamp;
+
+  /// `RETURN_REMAINING` | `GRINDING_REMAINING` — drives the GRINDING scrap-
+  /// icon switch in the renderer. Null on older backends.
+  final String? reprintLabelType;
+
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
@@ -104,7 +116,9 @@ class PreviousRollResolution {
         other.remainingWeightKg == remainingWeightKg &&
         other.remainderAction == remainderAction &&
         other.eventType == eventType &&
-        other.reprintAvailable == reprintAvailable;
+        other.reprintAvailable == reprintAvailable &&
+        other.labelTimestamp == labelTimestamp &&
+        other.reprintLabelType == reprintLabelType;
   }
 
   @override
@@ -117,5 +131,7 @@ class PreviousRollResolution {
     remainderAction,
     eventType,
     reprintAvailable,
+    labelTimestamp,
+    reprintLabelType,
   );
 }

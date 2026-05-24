@@ -342,6 +342,112 @@ void main() {
       );
     });
 
+    group(
+      'PR A — preserve mount + scan CTA on each failed-mount error code',
+      () {
+        const Map<String, ErrorCode> codes = <String, ErrorCode>{
+          'rollTypeNotAllowedForProduct':
+              ErrorCode.rollTypeNotAllowedForProduct,
+          'rollAlreadyConsumed': ErrorCode.rollAlreadyConsumed,
+          'rollNotFound': ErrorCode.rollNotFound,
+          'productionPlanItemRequired': ErrorCode.productionPlanItemRequired,
+        };
+
+        for (final MapEntry<String, ErrorCode> entry in codes.entries) {
+          test(
+            '${entry.key} → FailureState, previous mount preserved, '
+            'token NOT cleared',
+            () async {
+              final scanRepo = _MockScanRepo();
+              final authRepo = _MockAuthRepo();
+              when(
+                () => scanRepo.mountRoll(
+                  shiftLineId: kShiftLineId,
+                  generatedRollId: '777000000001',
+                ),
+              ).thenAnswer((_) async => RollScanSuccess(_mounted()));
+              when(
+                () => scanRepo.mountRoll(
+                  shiftLineId: kShiftLineId,
+                  generatedRollId: '777000000099',
+                ),
+              ).thenAnswer(
+                (_) async => RollScanFailure(
+                  BusinessFailure(code: entry.value),
+                ),
+              );
+              final container =
+                  _container(scanRepo: scanRepo, authRepo: authRepo);
+
+              // Mount the first roll so there's a `previous` to preserve.
+              await container
+                  .read(rollScanControllerProvider(kShiftLineId).notifier)
+                  .mountRoll('777000000001');
+              // Now fail the second scan.
+              await container
+                  .read(rollScanControllerProvider(kShiftLineId).notifier)
+                  .mountRoll('777000000099');
+
+              final state =
+                  container.read(rollScanControllerProvider(kShiftLineId));
+              expect(state, isA<RollScanFailureState>());
+              final failureState = state as RollScanFailureState;
+              // Previous mount is preserved — the home screen can keep
+              // rendering the mounted-roll card, and `_showThumbZoneScan`
+              // logic stays consistent (CTA visible when no current mount).
+              expect(failureState.previous?.generatedRollId, '777000000001');
+              expect(
+                (failureState.failure as BusinessFailure).code,
+                entry.value,
+              );
+              // None of these codes are session/line cascades — the auth
+              // repo must NOT have its token cleared.
+              verifyNever(() => authRepo.clearStoredToken(any<int>()));
+            },
+          );
+        }
+
+        test(
+          'rollWorkerSessionRequired → FailureState AND token cleared',
+          () async {
+            final scanRepo = _MockScanRepo();
+            final authRepo = _MockAuthRepo();
+            when(
+              () => scanRepo.mountRoll(
+                shiftLineId: kShiftLineId,
+                generatedRollId: '777000000001',
+              ),
+            ).thenAnswer(
+              (_) async => const RollScanFailure(
+                BusinessFailure(code: ErrorCode.rollWorkerSessionRequired),
+              ),
+            );
+            when(
+              () => authRepo.clearStoredToken(kShiftLineId),
+            ).thenAnswer((_) async {});
+            final container =
+                _container(scanRepo: scanRepo, authRepo: authRepo);
+
+            await container
+                .read(rollScanControllerProvider(kShiftLineId).notifier)
+                .mountRoll('777000000001');
+
+            final state =
+                container.read(rollScanControllerProvider(kShiftLineId));
+            expect(state, isA<RollScanFailureState>());
+            expect(
+              ((state as RollScanFailureState).failure as BusinessFailure)
+                  .code,
+              ErrorCode.rollWorkerSessionRequired,
+            );
+            // SESSION_REQUIRED cascades through the registry so the lost
+            // line drops out of /sessions/me and the picker re-opens.
+            verify(() => authRepo.clearStoredToken(kShiftLineId)).called(1);
+          },
+        );
+      },
+    );
+
     test('reset moves state to Idle (used on logout)', () async {
       final scanRepo = _MockScanRepo();
       when(

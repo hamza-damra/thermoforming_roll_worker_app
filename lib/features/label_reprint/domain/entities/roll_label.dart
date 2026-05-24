@@ -45,6 +45,7 @@ class RollLabel {
     required this.productionKind,
     required this.consumptionState,
     required this.lastKnownWeightKg,
+    this.createdAt,
   });
 
   final String generatedRollId;
@@ -64,6 +65,12 @@ class RollLabel {
 
   /// Declared remainder for warehouse / grinding station.
   final double lastKnownWeightKg;
+
+  /// Backend-authoritative roll creation / label timestamp. Drives the
+  /// weekday/date/time band on the printed sticker. **Never substitute
+  /// device time when this is null** — the print pipeline aborts instead
+  /// (see `LabelReprintController._print`).
+  final DateTime? createdAt;
 
   bool get isPartiallyReturned =>
       consumptionState == RollConsumptionState.partiallyReturned;
@@ -88,11 +95,12 @@ class RollLabel {
         other.actualThicknessMm == actualThicknessMm &&
         other.productionKind == productionKind &&
         other.consumptionState == consumptionState &&
-        other.lastKnownWeightKg == lastKnownWeightKg;
+        other.lastKnownWeightKg == lastKnownWeightKg &&
+        other.createdAt == createdAt;
   }
 
   @override
-  int get hashCode => Object.hashAll(<Object>[
+  int get hashCode => Object.hashAll(<Object?>[
     generatedRollId,
     prefixSnapshot,
     serialNumber,
@@ -108,5 +116,6 @@ class RollLabel {
     productionKind,
     consumptionState,
     lastKnownWeightKg,
+    createdAt,
   ]);
 }

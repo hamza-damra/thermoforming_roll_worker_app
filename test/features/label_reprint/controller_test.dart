@@ -20,6 +20,7 @@ import 'package:thermoforming_roll_worker/features/printer/core/printing_excepti
 import 'package:thermoforming_roll_worker/features/printer/data/printer_providers.dart';
 import 'package:thermoforming_roll_worker/features/printer/domain/entities/label_preset.dart';
 import 'package:thermoforming_roll_worker/features/printer/domain/entities/printer_config.dart';
+import 'package:thermoforming_roll_worker/features/printer/domain/entities/roll_label_data.dart';
 import 'package:thermoforming_roll_worker/features/printer/domain/printer_repository.dart';
 import 'package:thermoforming_roll_worker/features/printer/pipeline/printer_transport.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_providers.dart';
@@ -41,6 +42,7 @@ class _FakePrinterTransport implements PrinterTransport {
   String? lastValue;
   LabelPreset? lastPreset;
   int? lastCopies;
+  RollLabelData? lastLabelData;
   String? lastTopText;
   String? lastBottomText;
   String? lastSideText;
@@ -51,6 +53,7 @@ class _FakePrinterTransport implements PrinterTransport {
     required String value,
     required LabelPreset preset,
     int copies = 1,
+    RollLabelData? labelData,
     String? topText,
     String? bottomText,
     String? sideText,
@@ -60,6 +63,7 @@ class _FakePrinterTransport implements PrinterTransport {
     lastValue = value;
     lastPreset = preset;
     lastCopies = copies;
+    lastLabelData = labelData;
     lastTopText = topText;
     lastBottomText = bottomText;
     lastSideText = sideText;
@@ -73,7 +77,12 @@ class _FakePrinterTransport implements PrinterTransport {
 const int kShiftLineId = 800;
 const String kRollId = '777000000001';
 
-RollLabel _label() => const RollLabel(
+/// Sentinel marking "the caller did not pass a createdAt — use the
+/// default fixture timestamp". Tests that exercise the missing-timestamp
+/// abort path pass `createdAt: null` explicitly to bypass the default.
+const Object _unset = Object();
+
+RollLabel _label({Object? createdAt = _unset}) => RollLabel(
   generatedRollId: kRollId,
   prefixSnapshot: '777',
   serialNumber: 1,
@@ -89,6 +98,12 @@ RollLabel _label() => const RollLabel(
   productionKind: 'NORMAL',
   consumptionState: RollConsumptionState.partiallyReturned,
   lastKnownWeightKg: 75.5,
+  // `_unset` → default timestamp (so existing tests still pass the new
+  // strict gate). Explicit null → null (so the missing-timestamp test
+  // can exercise the abort).
+  createdAt: identical(createdAt, _unset)
+      ? DateTime.utc(2026, 5, 11, 14, 30)
+      : createdAt as DateTime?,
 );
 
 const PrinterConfig _printer = PrinterConfig(
@@ -202,11 +217,27 @@ void main() {
         expect(transport.sendCalls, 1);
         expect(transport.lastPrinter, _printer);
         expect(transport.lastValue, kRollId);
-        // Sticker layout: top + bottom + side text per the canonical
-        // sticker template.
-        expect(transport.lastTopText, 'TT-1S B250 White');
-        expect(transport.lastBottomText, 'TT-1S B250');
-        expect(transport.lastSideText, kRollId);
+        // New structured 100×100 layout: the controller passes a
+        // RollLabelData (not legacy top/bottom/side text) so the renderer
+        // takes the QR + roll-number + serial + weekday/date/time path.
+        // The Arabic remainder banner is dropped per the
+        // RollProductionApp reference (no return-specific marker).
+        expect(transport.lastTopText, isNull);
+        expect(transport.lastBottomText, isNull);
+        expect(transport.lastSideText, isNull);
+        expect(transport.lastLabelData, isNotNull);
+        expect(transport.lastLabelData!.generatedRollId, kRollId);
+        // Regex `-(\d+)` against 'TT-1S B250 White' captures '1'.
+        expect(transport.lastLabelData!.rollNumber, '1');
+        // Default fixture's createdAt is 2026-05-11 14:30 UTC; the
+        // controller passed it through unchanged (no device-time fallback).
+        expect(
+          transport.lastLabelData!.createdAt,
+          DateTime.utc(2026, 5, 11, 14, 30),
+        );
+        // Default reprint (no labelType override) → not a grinding
+        // remainder, so no scrap icon.
+        expect(transport.lastLabelData!.isScrap, false);
       },
     );
 
@@ -497,6 +528,189 @@ void main() {
       );
       verifyNoMoreInteractions(reprintRepo);
       expect(transport.sendCalls, 1);
+    });
+  });
+
+  group('strict timestamp resolution (PR C — no DateTime.now() fallback)', () {
+    test(
+      'all sources null (fetched label createdAt missing, no override) → '
+      'FailureState with missing-timestamp message, transport NOT called',
+      () async {
+        final reprintRepo = _MockReprintRepo();
+        final printerRepo = _MockPrinterRepo();
+        final transport = _FakePrinterTransport();
+        // Older-backend simulation: /reprint-label payload has no
+        // createdAt, so the entity carries createdAt = null.
+        when(
+          () => reprintRepo.fetchLabel(
+            shiftLineId: kShiftLineId,
+            generatedRollId: kRollId,
+          ),
+        ).thenAnswer(
+          (_) async => LabelReprintSuccess(_label(createdAt: null)),
+        );
+        when(() => printerRepo.getDefault()).thenReturn(_printer);
+        final container = _container(
+          reprintRepo: reprintRepo,
+          printerRepo: printerRepo,
+          transport: transport,
+        );
+
+        await container
+            .read(labelReprintControllerProvider(kShiftLineId).notifier)
+            .reprint(kRollId);
+
+        final state = container.read(
+          labelReprintControllerProvider(kShiftLineId),
+        );
+        expect(state, isA<LabelReprintFailureState>());
+        expect(
+          (state as LabelReprintFailureState).message,
+          PrintingException.missingLabelTimestamp().displayMessage,
+        );
+        // Hard precondition: we must NOT have hit the transport. The
+        // renderer never receives device time.
+        expect(transport.sendCalls, 0);
+        expect(transport.lastLabelData, isNull);
+      },
+    );
+
+    test(
+      'overrideTimestamp wins over fetched RollLabel.createdAt',
+      () async {
+        final DateTime fetched = DateTime.utc(2020, 1, 1);
+        final DateTime override = DateTime.utc(2026, 5, 11, 14, 30);
+        final reprintRepo = _MockReprintRepo();
+        final printerRepo = _MockPrinterRepo();
+        final transport = _FakePrinterTransport();
+        when(
+          () => reprintRepo.fetchLabel(
+            shiftLineId: kShiftLineId,
+            generatedRollId: kRollId,
+          ),
+        ).thenAnswer(
+          (_) async => LabelReprintSuccess(_label(createdAt: fetched)),
+        );
+        when(() => printerRepo.getDefault()).thenReturn(_printer);
+        final container = _container(
+          reprintRepo: reprintRepo,
+          printerRepo: printerRepo,
+          transport: transport,
+        );
+
+        await container
+            .read(labelReprintControllerProvider(kShiftLineId).notifier)
+            .reprint(kRollId, overrideTimestamp: override);
+
+        expect(transport.sendCalls, 1);
+        expect(transport.lastLabelData, isNotNull);
+        expect(transport.lastLabelData!.createdAt, override);
+      },
+    );
+
+    test(
+      'fetched RollLabel.createdAt used when no override is provided',
+      () async {
+        final DateTime fetched = DateTime.utc(2026, 6, 1, 8);
+        final reprintRepo = _MockReprintRepo();
+        final printerRepo = _MockPrinterRepo();
+        final transport = _FakePrinterTransport();
+        when(
+          () => reprintRepo.fetchLabel(
+            shiftLineId: kShiftLineId,
+            generatedRollId: kRollId,
+          ),
+        ).thenAnswer(
+          (_) async => LabelReprintSuccess(_label(createdAt: fetched)),
+        );
+        when(() => printerRepo.getDefault()).thenReturn(_printer);
+        final container = _container(
+          reprintRepo: reprintRepo,
+          printerRepo: printerRepo,
+          transport: transport,
+        );
+
+        await container
+            .read(labelReprintControllerProvider(kShiftLineId).notifier)
+            .reprint(kRollId);
+
+        expect(transport.sendCalls, 1);
+        expect(transport.lastLabelData!.createdAt, fetched);
+      },
+    );
+  });
+
+  group('labelType drives RollLabelData.isScrap (PR C — scrap icon switch)', () {
+    test('GRINDING_REMAINING → isScrap=true', () async {
+      final reprintRepo = _MockReprintRepo();
+      final printerRepo = _MockPrinterRepo();
+      final transport = _FakePrinterTransport();
+      when(
+        () => reprintRepo.fetchLabel(
+          shiftLineId: kShiftLineId,
+          generatedRollId: kRollId,
+        ),
+      ).thenAnswer((_) async => LabelReprintSuccess(_label()));
+      when(() => printerRepo.getDefault()).thenReturn(_printer);
+      final container = _container(
+        reprintRepo: reprintRepo,
+        printerRepo: printerRepo,
+        transport: transport,
+      );
+
+      await container
+          .read(labelReprintControllerProvider(kShiftLineId).notifier)
+          .reprint(kRollId, labelType: 'GRINDING_REMAINING');
+
+      expect(transport.lastLabelData!.isScrap, true);
+    });
+
+    test('RETURN_REMAINING → isScrap=false (no scrap icon)', () async {
+      final reprintRepo = _MockReprintRepo();
+      final printerRepo = _MockPrinterRepo();
+      final transport = _FakePrinterTransport();
+      when(
+        () => reprintRepo.fetchLabel(
+          shiftLineId: kShiftLineId,
+          generatedRollId: kRollId,
+        ),
+      ).thenAnswer((_) async => LabelReprintSuccess(_label()));
+      when(() => printerRepo.getDefault()).thenReturn(_printer);
+      final container = _container(
+        reprintRepo: reprintRepo,
+        printerRepo: printerRepo,
+        transport: transport,
+      );
+
+      await container
+          .read(labelReprintControllerProvider(kShiftLineId).notifier)
+          .reprint(kRollId, labelType: 'RETURN_REMAINING');
+
+      expect(transport.lastLabelData!.isScrap, false);
+    });
+
+    test('null labelType → isScrap=false (default standard label)', () async {
+      final reprintRepo = _MockReprintRepo();
+      final printerRepo = _MockPrinterRepo();
+      final transport = _FakePrinterTransport();
+      when(
+        () => reprintRepo.fetchLabel(
+          shiftLineId: kShiftLineId,
+          generatedRollId: kRollId,
+        ),
+      ).thenAnswer((_) async => LabelReprintSuccess(_label()));
+      when(() => printerRepo.getDefault()).thenReturn(_printer);
+      final container = _container(
+        reprintRepo: reprintRepo,
+        printerRepo: printerRepo,
+        transport: transport,
+      );
+
+      await container
+          .read(labelReprintControllerProvider(kShiftLineId).notifier)
+          .reprint(kRollId);
+
+      expect(transport.lastLabelData!.isScrap, false);
     });
   });
 

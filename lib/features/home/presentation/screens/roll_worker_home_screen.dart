@@ -10,15 +10,14 @@ import '../../../../core/ui/factory_machine_labels.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/app_scaffold.dart';
+import '../../../../core/widgets/success_snackbar.dart';
 import '../../../label_reprint/presentation/controllers/label_reprint_controller.dart';
 import '../../../label_reprint/presentation/screens/label_preview_screen.dart';
 import '../../../label_reprint/presentation/widgets/print_in_progress_dialog.dart';
-import '../../../operator_dashboard_sse/presentation/controllers/operator_dashboard_sync_controller.dart';
 import '../../../previous_roll/domain/entities/previous_roll_resolution.dart';
 import '../../../previous_roll/presentation/controllers/previous_roll_resolution_controller.dart';
 import '../../../previous_roll/presentation/controllers/previous_roll_resolution_state.dart';
 import '../../../previous_roll/presentation/widgets/close_previous_roll_dialog.dart';
-import '../../../previous_roll/presentation/widgets/closed_roll_summary_card.dart';
 import '../../../previous_roll/presentation/widgets/full_consume_confirm_dialog.dart';
 import '../../../previous_roll/presentation/widgets/grinding_dialog.dart';
 import '../../../previous_roll/presentation/widgets/return_remaining_dialog.dart';
@@ -28,14 +27,19 @@ import '../../../printer/presentation/screens/printer_settings_screen.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_controller.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_state.dart';
 import '../../../roll_scan/presentation/screens/scan_roll_screen.dart';
+import '../../../sessions_me/presentation/controllers/sessions_me_controller.dart';
+import '../../../sessions_me/presentation/controllers/sessions_me_state.dart';
 import '../../domain/entities/line_takeover.dart';
 import '../../domain/entities/shift_line_summary.dart';
 import '../controllers/acknowledged_takeover_controller.dart';
 import '../controllers/shift_line_summary_controller.dart';
 import '../controllers/shift_line_summary_state.dart';
+import '../../../sessions_me/domain/entities/roll_worker_active_line.dart';
 import '../widgets/active_product_chip.dart';
 import '../widgets/compact_line_header.dart';
 import '../widgets/compact_mounted_roll_card.dart';
+import '../widgets/consumed_rolls_section.dart';
+import '../widgets/home_shimmer_skeleton.dart';
 import '../widgets/returned_remaining_card.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/takeover_banner.dart';
@@ -62,6 +66,7 @@ class RollWorkerHomeScreen extends ConsumerStatefulWidget {
     this.lineIndex = 1,
     this.standaloneScaffold = true,
     this.headerActions,
+    this.accentColor,
   });
 
   final int shiftLineId;
@@ -77,6 +82,12 @@ class RollWorkerHomeScreen extends ConsumerStatefulWidget {
   /// Extra AppBar actions injected by the shell (printer icon, overflow menu).
   final List<Widget>? headerActions;
 
+  /// Per-line accent color used by the multi-line shell to tint the line
+  /// header strip + scan button — `null` falls back to the global accent.
+  /// Same line gets the same color across launches (see
+  /// `AppColors.accentForLine`).
+  final Color? accentColor;
+
   static const String title = 'تطبيق موظف الرولات';
   static const String scanRoll = 'مسح رول';
   static const String closePreviousRoll = 'إغلاق الرول السابق';
@@ -90,56 +101,21 @@ class RollWorkerHomeScreen extends ConsumerStatefulWidget {
       _RollWorkerHomeScreenState();
 }
 
-class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
-    with WidgetsBindingObserver {
+class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Initial REST-summary load for this line. SSE-driven refreshes are
+      // now owned globally by `SessionsMeController` (which also triggers
+      // a /summary refresh for the visible line). Per-line operator-
+      // dashboard SSE was retired in the realtime + line-management
+      // handoff §3.
       ref
           .read(shiftLineSummaryControllerProvider(widget.shiftLineId).notifier)
           .load();
-      // Start the operator-dashboard SSE bridge so operator-side roll-state /
-      // product updates are reflected here without a manual refresh
-      // (handoff §3 / §6).
-      ref
-          .read(
-            operatorDashboardSyncControllerProvider(
-              widget.shiftLineId,
-            ).notifier,
-          )
-          .start();
     });
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  /// Forwards app foreground/background transitions to the SSE sync
-  /// controller. The operator-dashboard broker does not replay events missed
-  /// while the app was paused, so on resume the controller refreshes the REST
-  /// summary immediately and restarts its adaptive poll; on pause it drops
-  /// the poll (Line State Refresh Events handoff §3 / §6).
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    final OperatorDashboardSyncController sync = ref.read(
-      operatorDashboardSyncControllerProvider(_shiftLineId).notifier,
-    );
-    switch (state) {
-      case AppLifecycleState.resumed:
-        sync.onAppResumed();
-      case AppLifecycleState.paused:
-        sync.onAppPaused();
-      case AppLifecycleState.inactive:
-      case AppLifecycleState.detached:
-      case AppLifecycleState.hidden:
-        break;
-    }
   }
 
   int get _shiftLineId => widget.shiftLineId;
@@ -221,8 +197,10 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
 
   Future<void> _onReprintTap(
     BuildContext context,
-    String generatedRollId,
-  ) async {
+    String generatedRollId, {
+    DateTime? overrideTimestamp,
+    String? labelType,
+  }) async {
     final PrinterConfig? printer = ref
         .read(printerRepositoryProvider)
         .getDefault();
@@ -241,8 +219,35 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
     // ignore: unawaited_futures
     ref
         .read(labelReprintControllerProvider(_shiftLineId).notifier)
-        .reprint(generatedRollId);
+        .reprint(
+          generatedRollId,
+          overrideTimestamp: overrideTimestamp,
+          labelType: labelType,
+        );
     await dialog;
+  }
+
+  /// Looks up the consumed roll on the current summary so the reprint
+  /// path can pass the backend-authoritative `labelTimestamp` and
+  /// `reprintLabelType` overrides (avoiding device-time substitution and
+  /// GRINDING-vs-RETURN guesswork).
+  ({DateTime? timestamp, String? labelType}) _reprintOverridesFor(
+    String generatedRollId,
+  ) {
+    final ShiftLineSummaryState s = ref.read(
+      shiftLineSummaryControllerProvider(_shiftLineId),
+    );
+    final ShiftLineSummary? summary = switch (s) {
+      SummaryLoaded(:final summary) => summary,
+      _ => null,
+    };
+    if (summary == null) return (timestamp: null, labelType: null);
+    for (final ConsumedRoll r in summary.consumedRolls) {
+      if (r.generatedRollId == generatedRollId) {
+        return (timestamp: r.labelTimestamp, labelType: r.reprintLabelType);
+      }
+    }
+    return (timestamp: null, labelType: null);
   }
 
   Future<void> _openLabelPreview(
@@ -264,6 +269,32 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(builder: (_) => const PrinterSettingsScreen()),
     );
+  }
+
+  /// Resolves the current product from `/sessions/me` (production-plan
+  /// driven). Falls back to a neutral placeholder chip when no active plan
+  /// item is present. The legacy `summary.currentProductType*` fields are no
+  /// longer used for the chip.
+  ///
+  /// Uses `select` to scope rebuilds to the (id, name) pair for THIS line —
+  /// otherwise a fallback poll or refresh-flag flip would rebuild the chip
+  /// on every tick.
+  Widget _buildActiveProductChip() {
+    final (int?, String?) selected = ref.watch(
+      sessionsMeControllerProvider.select<(int?, String?)>((s) {
+        if (s is! SessionsMeLoaded) return (null, null);
+        for (final RollWorkerActiveLine l in s.me.lines) {
+          if (l.shiftLineId == _shiftLineId) {
+            return (l.currentPlanItemProductTypeId, l.currentPlanItemProductName);
+          }
+        }
+        return (null, null);
+      }),
+    );
+    final int? id = selected.$1;
+    final String? name = selected.$2;
+    if (name == null) return const ActiveProductChip.placeholder();
+    return ActiveProductChip(productName: name, productId: id);
   }
 
   bool _showThumbZoneScan({
@@ -300,6 +331,28 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
       }
     });
 
+    // Whenever /sessions/me reports a fresher snapshot, refresh THIS line's
+    // /summary too — this is the "refresh /summary only for currently
+    // active/visible lines" rule. Each visible PerLinePage owns this
+    // listener, so an off-screen line in the PageView still updates on
+    // tab focus via the initial load + this listener firing once the page
+    // becomes built.
+    ref.listen<SessionsMeState>(sessionsMeControllerProvider, (prev, next) {
+      if (next is! SessionsMeLoaded) return;
+      // Only refresh when a NEW snapshot arrived — not on `isRefreshing`
+      // flips that don't carry new data.
+      if (prev is SessionsMeLoaded && prev.fetchedAt == next.fetchedAt) {
+        return;
+      }
+      // Skip when this line is no longer in the unified state (cascade
+      // detection already started; the summary refresh would just 401).
+      final bool stillActive = next.me.shiftLineIds.contains(_shiftLineId);
+      if (!stillActive) return;
+      ref
+          .read(shiftLineSummaryControllerProvider(_shiftLineId).notifier)
+          .refresh();
+    });
+
     // Detect a new pending Line Takeover Request → alert + blocking dialog.
     ref.listen<ShiftLineSummaryState>(
       shiftLineSummaryControllerProvider(_shiftLineId),
@@ -310,16 +363,59 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
       previousRollResolutionControllerProvider(_shiftLineId),
       (prev, next) {
         if (next is PreviousRollResolved && prev is! PreviousRollResolved) {
+          // Non-blocking success feedback: refresh the summary so the
+          // closed roll lands in the consumed-rolls list (where the worker
+          // can reprint when RETURN/GRINDING), show a brief snackbar, and
+          // immediately acknowledge the resolved state so the mount
+          // section never collapses to the old blocking summary card.
           ref
               .read(shiftLineSummaryControllerProvider(_shiftLineId).notifier)
               .refresh();
-          ScaffoldMessenger.maybeOf(context)
-            ?..hideCurrentSnackBar()
-            ..showSnackBar(
-              const SnackBar(
-                content: Text(RollWorkerHomeScreen.closedRollSnack),
-              ),
-            );
+          SuccessSnackbar.show(context, RollWorkerHomeScreen.closedRollSnack);
+          ref
+              .read(
+                previousRollResolutionControllerProvider(_shiftLineId).notifier,
+              )
+              .acknowledge();
+          // Auto-trigger remainder-label print after RETURN / GRINDING.
+          // Backend gates this with `reprintAvailable = true` (always
+          // false for FULL_CONSUMPTION). Schedule via post-frame so the
+          // snackbar and the print dialog don't race over the same
+          // BuildContext. The print pipeline itself is fire-and-forget —
+          // the close already succeeded; a print failure surfaces as a
+          // retry on the consumed-roll card.
+          if (next.resolution.reprintAvailable) {
+            final PreviousRollResolution res = next.resolution;
+            // Auto-print priority for the timestamp:
+            //   1. close-response labelTimestamp (this branch)
+            //   2. /reprint-label.createdAt (fetched inside the
+            //      controller)
+            //   3. abort with PrintingException.missingLabelTimestamp.
+            // Never substitute DateTime.now().
+            //
+            // GRINDING vs RETURN drives the scrap-icon switch in the
+            // renderer. Prefer the explicit backend `reprintLabelType`
+            // when present; otherwise infer from `remainderAction` so
+            // older backends still pick the right template.
+            final String inferredType = switch (res.remainderAction) {
+              PreviousRollRemainderAction.grinding => 'GRINDING_REMAINING',
+              PreviousRollRemainderAction.returned => 'RETURN_REMAINING',
+              _ => '',
+            };
+            final String? labelType =
+                (res.reprintLabelType != null && res.reprintLabelType!.isNotEmpty)
+                    ? res.reprintLabelType
+                    : (inferredType.isEmpty ? null : inferredType);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _onReprintTap(
+                context,
+                res.generatedRollId,
+                overrideTimestamp: res.labelTimestamp,
+                labelType: labelType,
+              );
+            });
+          }
         }
       },
     );
@@ -360,6 +456,7 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
           lineCode: summary?.thermoformingLineCode,
           lineName: summary?.thermoformingLineName,
           lineIndex: widget.lineIndex,
+          accentColor: widget.accentColor,
         ),
         const SizedBox(height: 12),
       ],
@@ -368,22 +465,40 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
         const SizedBox(height: 12),
       ],
       if (summaryState is SummaryLoading)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 16),
-          child: Center(child: CircularProgressIndicator()),
-        )
+        const HomeShimmerSkeleton()
       else if (summary != null) ...[
-        if (summary.activeProduct != null) ...[
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: ActiveProductChip(product: summary.activeProduct!),
-          ),
-          const SizedBox(height: 12),
-        ],
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: _buildActiveProductChip(),
+        ),
+        const SizedBox(height: 12),
         SummaryCard(
-          completedRollsInShift: summary.completedRollsInShift,
+          completedRollsInSession: summary.completedRollsInSession,
           completedRollsByCurrentWorker: summary.completedRollsByCurrentWorker,
           isRefreshing: isRefreshing,
+        ),
+        const SizedBox(height: 12),
+        ConsumedRollsSection(
+          rolls: summary.consumedRolls,
+          // Reprint is suppressed while the line is unavailable (handover,
+          // takeover blocked, no operator) — the worker can't act on the
+          // physical roll right now anyway.
+          //
+          // When enabled, the per-row `labelTimestamp` and
+          // `reprintLabelType` from /summary are passed as overrides so
+          // the print pipeline never substitutes device time and the
+          // GRINDING scrap icon is rendered correctly.
+          onReprint: lineUnavailable
+              ? null
+              : (id) {
+                  final overrides = _reprintOverridesFor(id);
+                  _onReprintTap(
+                    context,
+                    id,
+                    overrideTimestamp: overrides.timestamp,
+                    labelType: overrides.labelType,
+                  );
+                },
         ),
         const SizedBox(height: 12),
         if (summary.returnedRemainingRoll != null) ...[
@@ -418,16 +533,8 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
       else
         _MountSection(
           shiftLineId: _shiftLineId,
-          resolutionState: resolutionState,
           summaryMountedRoll: summary?.mountedRoll,
           onCloseTap: (roll) => _openCloseFlow(context, roll),
-          onReprintTap: (id) => _onReprintTap(context, id),
-          onPreviewTap: (id) => _openLabelPreview(context, id),
-          onAcknowledgeResolved: () => ref
-              .read(
-                previousRollResolutionControllerProvider(_shiftLineId).notifier,
-              )
-              .acknowledge(),
         ),
       if (showThumbScan) const SizedBox(height: 24),
     ];
@@ -456,6 +563,9 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
                     label: RollWorkerHomeScreen.scanRoll,
                     icon: Icons.qr_code_scanner_rounded,
                     onPressed: () => _openScanScreen(context),
+                    // Per-line accent (handoff §8 item 8: scan button is
+                    // one of the surfaces tinted with the line color).
+                    color: widget.accentColor,
                   ),
                 ),
               ),
@@ -487,40 +597,21 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen>
 class _MountSection extends StatelessWidget {
   const _MountSection({
     required this.shiftLineId,
-    required this.resolutionState,
     required this.summaryMountedRoll,
     required this.onCloseTap,
-    required this.onReprintTap,
-    required this.onPreviewTap,
-    required this.onAcknowledgeResolved,
   });
 
   final int shiftLineId;
-  final PreviousRollResolutionState resolutionState;
   final SummaryMountedRoll? summaryMountedRoll;
   final ValueChanged<SummaryMountedRoll> onCloseTap;
-  final ValueChanged<String> onReprintTap;
-  final ValueChanged<String> onPreviewTap;
-  final VoidCallback onAcknowledgeResolved;
 
   @override
   Widget build(BuildContext context) {
-    if (resolutionState is PreviousRollResolved) {
-      final PreviousRollResolution resolution =
-          (resolutionState as PreviousRollResolved).resolution;
-      return ClosedRollSummaryCard(
-        resolution: resolution,
-        onAcknowledge: onAcknowledgeResolved,
-        onReprint: resolution.reprintAvailable ? onReprintTap : null,
-        onPreview: resolution.reprintAvailable ? onPreviewTap : null,
-      );
-    }
-
     final SummaryMountedRoll? roll = summaryMountedRoll;
     if (roll != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+        children: <Widget>[
           CompactMountedRollCard(roll: roll),
           const SizedBox(height: 12),
           AppPrimaryButton.accent(
@@ -551,7 +642,7 @@ class _EmptyMountPromptCard extends StatelessWidget {
             child: Container(
               width: 72,
               height: 72,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.primaryLight,
                 shape: BoxShape.circle,
               ),

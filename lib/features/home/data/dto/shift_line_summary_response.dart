@@ -39,13 +39,113 @@ class SummaryMountedRollResponse {
   );
 }
 
+/// One entry in the session-scoped `consumedRolls` list returned by
+/// `/shift-lines/{shiftLineId}/summary`. Capped at 10 newest-first by the
+/// backend; the wire codes for `closedReason` / `remainderAction` are
+/// translated to Arabic at render time.
+class ConsumedRollResponse {
+  const ConsumedRollResponse({
+    required this.consumptionItemId,
+    required this.rollId,
+    required this.generatedRollId,
+    required this.rollTypeCode,
+    required this.rollTypeName,
+    required this.startWeightKg,
+    required this.endWeightKg,
+    required this.consumedWeightKg,
+    required this.closedReason,
+    required this.remainderAction,
+    required this.endedAt,
+    required this.endedAtDisplay,
+    this.remainingWeightKg,
+    this.reprintAvailable,
+    this.reprintLabelType,
+    this.labelTimestamp,
+  });
+
+  factory ConsumedRollResponse.fromJson(Map<String, dynamic> json) {
+    return ConsumedRollResponse(
+      consumptionItemId: json['consumptionItemId'] as int,
+      rollId: json['rollId'] as int,
+      generatedRollId: json['generatedRollId'] as String,
+      rollTypeCode: json['rollTypeCode'] as String,
+      rollTypeName: json['rollTypeName'] as String,
+      startWeightKg: (json['startWeightKg'] as num).toDouble(),
+      endWeightKg: (json['endWeightKg'] as num).toDouble(),
+      consumedWeightKg: (json['consumedWeightKg'] as num).toDouble(),
+      remainingWeightKg: (json['remainingWeightKg'] as num?)?.toDouble(),
+      closedReason: json['closedReason'] as String,
+      remainderAction: json['remainderAction'] as String,
+      endedAt: DateTime.parse(json['endedAt'] as String),
+      endedAtDisplay: json['endedAtDisplay'] as String,
+      reprintAvailable: ShiftLineSummaryResponse._asBool(
+        json['reprintAvailable'],
+      ),
+      reprintLabelType: ShiftLineSummaryResponse._asString(
+        json['reprintLabelType'],
+      ),
+      labelTimestamp: ShiftLineSummaryResponse._asDateTime(
+        json['labelTimestamp'],
+      ),
+    );
+  }
+
+  final int consumptionItemId;
+  final int rollId;
+  final String generatedRollId;
+  final String rollTypeCode;
+  final String rollTypeName;
+  final double startWeightKg;
+  final double endWeightKg;
+  final double consumedWeightKg;
+  final double? remainingWeightKg;
+  final String closedReason;
+  final String remainderAction;
+  final DateTime endedAt;
+  final String endedAtDisplay;
+
+  /// Backend authoritative reprint flag. `null` on older backends — the
+  /// UI falls back to a `remainderAction`-based inference in that case.
+  final bool? reprintAvailable;
+
+  /// Label-template hint from the backend: `RETURN_REMAINING` |
+  /// `GRINDING_REMAINING`. Drives the GRINDING scrap-icon switch in the
+  /// renderer. `null` on older backends.
+  final String? reprintLabelType;
+
+  /// Stable timestamp the backend wants printed on the label's
+  /// weekday/date/time band. Never substitute device time when this is null;
+  /// the auto-print path aborts instead.
+  final DateTime? labelTimestamp;
+
+  ConsumedRoll toEntity() => ConsumedRoll(
+    consumptionItemId: consumptionItemId,
+    rollId: rollId,
+    generatedRollId: generatedRollId,
+    rollTypeCode: rollTypeCode,
+    rollTypeName: rollTypeName,
+    startWeightKg: startWeightKg,
+    endWeightKg: endWeightKg,
+    consumedWeightKg: consumedWeightKg,
+    remainingWeightKg: remainingWeightKg,
+    closedReason: closedReason,
+    remainderAction: remainderAction,
+    endedAt: endedAt,
+    endedAtDisplay: endedAtDisplay,
+    reprintAvailable: reprintAvailable,
+    reprintLabelType: reprintLabelType,
+    labelTimestamp: labelTimestamp,
+  );
+}
+
 class ShiftLineSummaryResponse {
   const ShiftLineSummaryResponse({
     required this.shiftLineId,
     required this.thermoformingLineCode,
     required this.thermoformingLineName,
-    required this.completedRollsInShift,
+    required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
+    this.consumedRolls = const <ConsumedRollResponse>[],
     this.mountedRoll,
     this.blocked = false,
     this.blockedReason,
@@ -64,9 +164,10 @@ class ShiftLineSummaryResponse {
       shiftLineId: json['shiftLineId'] as int,
       thermoformingLineCode: json['thermoformingLineCode'] as String,
       thermoformingLineName: json['thermoformingLineName'] as String,
-      completedRollsInShift: json['completedRollsInShift'] as int,
+      completedRollsInSession: json['completedRollsInSession'] as int,
       completedRollsByCurrentWorker:
           json['completedRollsByCurrentWorker'] as int,
+      consumedRolls: _parseConsumedRolls(json['consumedRolls']),
       mountedRoll: mountedRollJson is Map<String, dynamic>
           ? SummaryMountedRollResponse.fromJson(mountedRollJson)
           : null,
@@ -89,8 +190,9 @@ class ShiftLineSummaryResponse {
   final int shiftLineId;
   final String thermoformingLineCode;
   final String thermoformingLineName;
-  final int completedRollsInShift;
+  final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
+  final List<ConsumedRollResponse> consumedRolls;
   final SummaryMountedRollResponse? mountedRoll;
   final bool blocked;
   final String? blockedReason;
@@ -117,8 +219,9 @@ class ShiftLineSummaryResponse {
     shiftLineId: shiftLineId,
     thermoformingLineCode: thermoformingLineCode,
     thermoformingLineName: thermoformingLineName,
-    completedRollsInShift: completedRollsInShift,
+    completedRollsInSession: completedRollsInSession,
     completedRollsByCurrentWorker: completedRollsByCurrentWorker,
+    consumedRolls: consumedRolls.map((e) => e.toEntity()).toList(),
     mountedRoll: mountedRoll?.toEntity(),
     activeProduct: _currentProduct,
     blocked: blocked,
@@ -129,6 +232,16 @@ class ShiftLineSummaryResponse {
     handoverPending: handoverPending,
     lineLifecycleStatus: lineLifecycleStatus,
   );
+
+  /// Parses the `consumedRolls` JSON array. Returns an empty list when the
+  /// key is missing or malformed so older backends don't crash the client.
+  static List<ConsumedRollResponse> _parseConsumedRolls(Object? raw) {
+    if (raw is! List) return const <ConsumedRollResponse>[];
+    return <ConsumedRollResponse>[
+      for (final Object? item in raw)
+        if (item is Map<String, dynamic>) ConsumedRollResponse.fromJson(item),
+    ];
+  }
 
   /// Builds a [LineTakeover] from the shift-line summary JSON.
   ///

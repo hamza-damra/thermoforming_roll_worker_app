@@ -1,12 +1,13 @@
 import '../domain/entities/label_preset.dart';
 import '../domain/entities/printer_config.dart';
+import '../domain/entities/roll_label_data.dart';
 import 'printer_client.dart';
 
-/// Abstraction over the physical TSPL/socket printing pipeline.
+/// Abstraction over the physical TSPL/ZPL/socket printing pipeline.
 ///
 /// Production: [TsplSocketPrinterTransport] wraps `PrinterClient`,
-/// `LabelRenderer`, and `TsplBuilder` to render and send a TSPL print job
-/// to a TCP/IP printer.
+/// `LabelRenderer`, and the matching command builder to render and send a
+/// print job to a TCP/IP printer.
 ///
 /// Tests: substitute via Riverpod override with a fake transport that
 /// records calls or simulates connection / send failures without hitting
@@ -17,6 +18,10 @@ abstract class PrinterTransport {
     required String value,
     required LabelPreset preset,
     int copies = 1,
+    // Structured layout (preferred). When non-null the renderer uses the
+    // new 100×100 mm structured layout; the `topText`/`bottomText`/
+    // `sideText` params are ignored.
+    RollLabelData? labelData,
     String? topText,
     String? bottomText,
     String? sideText,
@@ -26,7 +31,7 @@ abstract class PrinterTransport {
 }
 
 /// Default transport that uses [PrinterClient] (which itself wraps
-/// `LabelRenderer` + `TsplBuilder` + a `dart:io.Socket`).
+/// `LabelRenderer` + the TSPL/ZPL builders + a `dart:io.Socket`).
 class TsplSocketPrinterTransport implements PrinterTransport {
   const TsplSocketPrinterTransport();
 
@@ -36,6 +41,7 @@ class TsplSocketPrinterTransport implements PrinterTransport {
     required String value,
     required LabelPreset preset,
     int copies = 1,
+    RollLabelData? labelData,
     String? topText,
     String? bottomText,
     String? sideText,
@@ -44,6 +50,7 @@ class TsplSocketPrinterTransport implements PrinterTransport {
       value: value,
       preset: preset,
       copies: copies,
+      labelData: labelData,
       topText: topText,
       bottomText: bottomText,
       sideText: sideText,

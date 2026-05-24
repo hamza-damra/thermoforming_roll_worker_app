@@ -54,6 +54,18 @@ class PrintingException implements Exception {
     message: 'حجم الملصق غير موجود',
   );
 
+  /// Hard precondition for the new structured layout: the renderer needs a
+  /// backend-authoritative roll creation / label timestamp. Surfaces when
+  /// none of the available sources (`consumedRoll.labelTimestamp`,
+  /// `/reprint-label.createdAt`, close-response `labelTimestamp`) supplied
+  /// one. We never substitute device time.
+  factory PrintingException.missingLabelTimestamp() => PrintingException(
+    code: 'MISSING_LABEL_TIMESTAMP',
+    message:
+        'تعذّر طباعة الملصق: لم يصل تاريخ الرول من الخادم. الرجاء تحديث '
+        'الخادم ليرسل تاريخ الرول قبل الطباعة.',
+  );
+
   String get displayMessage => message;
 
   @override

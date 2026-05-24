@@ -24,6 +24,7 @@ class RollLabelReprintResponse {
     required this.productionKind,
     required this.consumptionState,
     required this.lastKnownWeightKg,
+    this.createdAt,
   });
 
   factory RollLabelReprintResponse.fromJson(Map<String, dynamic> json) {
@@ -52,8 +53,16 @@ class RollLabelReprintResponse {
       productionKind: json['productionKind'] as String,
       consumptionState: state,
       lastKnownWeightKg: (json['lastKnownWeightKg'] as num).toDouble(),
+      // Defensive: backends that haven't yet exposed the timestamp leave
+      // this null. The print pipeline aborts (never substitutes device
+      // time) when the resolved timestamp from all sources is null.
+      createdAt: _parseTimestamp(json['createdAt']) ??
+          _parseTimestamp(json['labelTimestamp']),
     );
   }
+
+  static DateTime? _parseTimestamp(Object? v) =>
+      v is String && v.isNotEmpty ? DateTime.tryParse(v) : null;
 
   final String generatedRollId;
   final String prefixSnapshot;
@@ -71,6 +80,11 @@ class RollLabelReprintResponse {
   final RollConsumptionState consumptionState;
   final double lastKnownWeightKg;
 
+  /// Backend roll creation / label timestamp. Either `createdAt` or
+  /// `labelTimestamp` on the wire is accepted (whichever the backend chose
+  /// to expose first). Null when neither is present.
+  final DateTime? createdAt;
+
   RollLabel toEntity() => RollLabel(
     generatedRollId: generatedRollId,
     prefixSnapshot: prefixSnapshot,
@@ -87,5 +101,6 @@ class RollLabelReprintResponse {
     productionKind: productionKind,
     consumptionState: consumptionState,
     lastKnownWeightKg: lastKnownWeightKg,
+    createdAt: createdAt,
   );
 }

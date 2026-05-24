@@ -19,6 +19,8 @@ class PreviousRollResolutionResponse {
     required this.remainderAction,
     required this.eventType,
     required this.reprintAvailable,
+    this.labelTimestamp,
+    this.reprintLabelType,
   });
 
   factory PreviousRollResolutionResponse.fromJson(Map<String, dynamic> json) {
@@ -56,8 +58,18 @@ class PreviousRollResolutionResponse {
       remainderAction: remainder,
       eventType: eventType,
       reprintAvailable: json['reprintAvailable'] as bool,
+      labelTimestamp: _parseTimestamp(json['labelTimestamp']) ??
+          _parseTimestamp(json['rollCreatedAt']),
+      reprintLabelType:
+          (json['reprintLabelType'] is String &&
+                  (json['reprintLabelType'] as String).isNotEmpty)
+              ? json['reprintLabelType'] as String
+              : null,
     );
   }
+
+  static DateTime? _parseTimestamp(Object? v) =>
+      v is String && v.isNotEmpty ? DateTime.tryParse(v) : null;
 
   final int rollId;
   final String generatedRollId;
@@ -68,6 +80,14 @@ class PreviousRollResolutionResponse {
   final PreviousRollEventType eventType;
   final bool reprintAvailable;
 
+  /// Backend-authoritative timestamp to print on the remainder label.
+  /// `null` on older backends — the controller falls through to other
+  /// sources (or aborts) rather than using device time.
+  final DateTime? labelTimestamp;
+
+  /// `RETURN_REMAINING` | `GRINDING_REMAINING`. `null` on older backends.
+  final String? reprintLabelType;
+
   PreviousRollResolution toEntity() => PreviousRollResolution(
     rollId: rollId,
     generatedRollId: generatedRollId,
@@ -77,5 +97,7 @@ class PreviousRollResolutionResponse {
     remainderAction: remainderAction,
     eventType: eventType,
     reprintAvailable: reprintAvailable,
+    labelTimestamp: labelTimestamp,
+    reprintLabelType: reprintLabelType,
   );
 }
