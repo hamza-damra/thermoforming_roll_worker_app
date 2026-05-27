@@ -27,9 +27,14 @@ enum ErrorCode {
   thermoformingShiftLineNotActive('THERMOFORMING_SHIFT_LINE_NOT_ACTIVE'),
   noCurrentProductOnLine('NO_CURRENT_PRODUCT_ON_LINE'),
 
+  /// Backend rejects roll-mount when the line has no active production-plan
+  /// item. Documented in the realtime+line-management handoff §7.1.
+  productionPlanItemRequired('PRODUCTION_PLAN_ITEM_REQUIRED'),
+
   // ─── Roll lifecycle ───────────────────────────────────────────────────────
   rollNotFound('ROLL_NOT_FOUND'),
   rollAlreadyConsumed('ROLL_ALREADY_CONSUMED'),
+  rollSentToGrindingNotReusable('ROLL_SENT_TO_GRINDING_NOT_REUSABLE'),
   rollActiveOnAnotherLine('ROLL_ACTIVE_ON_ANOTHER_LINE'),
   rollBlocked('ROLL_BLOCKED'),
   rollTypeNotAllowedForProduct('ROLL_TYPE_NOT_ALLOWED_FOR_PRODUCT'),

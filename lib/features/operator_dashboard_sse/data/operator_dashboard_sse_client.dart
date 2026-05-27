@@ -1,11 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-
 import '../../../core/api/api_paths.dart';
 import '../../../core/api/session_token_interceptor.dart';
 import '../domain/entities/operator_dashboard_event.dart';
@@ -174,7 +171,7 @@ class _SseSubscription {
   Future<void> _connect() async {
     if (_closed) return;
     final SseFrameParser parser = SseFrameParser();
-    final Utf8Decoder decoder = const Utf8Decoder(allowMalformed: true);
+    const Utf8Decoder decoder = Utf8Decoder(allowMalformed: true);
     bool handshakeSeen = false;
     String? token;
     try {

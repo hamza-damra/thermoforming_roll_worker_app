@@ -18,6 +18,8 @@ void main() {
         'NO_CURRENT_PRODUCT_ON_LINE': ErrorCode.noCurrentProductOnLine,
         'ROLL_NOT_FOUND': ErrorCode.rollNotFound,
         'ROLL_ALREADY_CONSUMED': ErrorCode.rollAlreadyConsumed,
+        'ROLL_SENT_TO_GRINDING_NOT_REUSABLE':
+            ErrorCode.rollSentToGrindingNotReusable,
         'ROLL_ACTIVE_ON_ANOTHER_LINE': ErrorCode.rollActiveOnAnotherLine,
         'ROLL_BLOCKED': ErrorCode.rollBlocked,
         'ROLL_TYPE_NOT_ALLOWED_FOR_PRODUCT':
@@ -56,17 +58,18 @@ void main() {
     });
 
     test('BusinessFailure with known code → mapped Arabic', () {
+      // Handoff §7.1 text (shortened from the earlier in-house phrasing).
       expect(
         arabicMessageFor(
           const BusinessFailure(code: ErrorCode.rollAlreadyConsumed),
         ),
-        'تم استهلاك هذا الرول بالفعل ولا يمكن تحميله مرة أخرى.',
+        'هذا الرول مستهلك بالفعل.',
       );
       expect(
         arabicMessageFor(
           const BusinessFailure(code: ErrorCode.rollWorkerSessionRequired),
         ),
-        'انتهت الجلسة، يُرجى تسجيل الدخول مجددًا.',
+        'انتهت الجلسة. يرجى تسجيل الدخول من جديد.',
       );
     });
 

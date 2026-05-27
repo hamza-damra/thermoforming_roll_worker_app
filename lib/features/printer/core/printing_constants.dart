@@ -20,6 +20,14 @@ class PrintingConstants {
   static const int defaultCopies = 1;
 
   /// First built-in preset id; used as the boot-time fallback if the worker
-  /// has not yet picked one.
-  static const String defaultPresetId = 'default_50x30';
+  /// has not yet picked one. Bumped from 50×30 to 100×100 — the factory
+  /// standardized on 100×100 mm label stock; see the one-shot preset
+  /// migration in `printing_local_storage.dart` (`preset_migration_v1`).
+  static const String defaultPresetId = 'default_100x100';
+
+  /// Pre-migration default preset id. Used by the one-shot migration in
+  /// `printing_local_storage.dart` to decide whether the existing
+  /// `lastPresetId` was an unchanged default (safe to bump to 100×100)
+  /// vs a deliberate user choice (must not be overridden).
+  static const String legacyDefaultPresetId = 'default_50x30';
 }

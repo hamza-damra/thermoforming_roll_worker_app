@@ -11,10 +11,14 @@ import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entit
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/roll_worker_auth_repository.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
+import 'package:thermoforming_roll_worker/features/sessions_me/data/sessions_me_providers.dart';
+import 'package:thermoforming_roll_worker/features/sessions_me/domain/sessions_me_repository.dart';
 
 class _MockAuthRepo extends Mock implements RollWorkerAuthRepository {}
 
 class _MockIndexRaw extends Mock implements FlutterSecureStorage {}
+
+class _MockSessionsMeRepo extends Mock implements SessionsMeRepository {}
 
 RollWorkerSession _session(int shiftLineId, {String? status = 'ACTIVE'}) =>
     RollWorkerSession(
@@ -32,11 +36,14 @@ RollWorkerSession _session(int shiftLineId, {String? status = 'ACTIVE'}) =>
 ProviderContainer _container({
   required RollWorkerAuthRepository auth,
   required SessionIndexStorage index,
+  SessionsMeRepository? sessionsMe,
 }) {
   final c = ProviderContainer(
     overrides: <Override>[
       rollWorkerAuthRepositoryProvider.overrideWithValue(auth),
       sessionIndexStorageProvider.overrideWithValue(index),
+      if (sessionsMe != null)
+        sessionsMeRepositoryProvider.overrideWithValue(sessionsMe),
     ],
   );
   addTearDown(c.dispose);
@@ -267,10 +274,11 @@ void main() {
 
   group('logoutAll', () {
     test(
-      'partial failure retains the failed line with failedRetryable status',
+      'success → all lines collapse to RegistryEmpty via /sessions/leave-all',
       () async {
         final auth = _MockAuthRepo();
         final raw = _MockIndexRaw();
+        final sessionsMe = _MockSessionsMeRepo();
         when(
           () => raw.read(key: any<String>(named: 'key')),
         ).thenAnswer((_) async => '[101,102]');
@@ -287,12 +295,13 @@ void main() {
           () => auth.getCurrentSession(102),
         ).thenAnswer((_) async => RollWorkerAuthSuccess(_session(102)));
         when(() => auth.clearStoredToken(any<int>())).thenAnswer((_) async {});
-        when(() => auth.logout(101)).thenAnswer((_) async {});
-        when(() => auth.logout(102)).thenThrow(Exception('boom'));
+        when(sessionsMe.leaveAll)
+            .thenAnswer((_) async => const LeaveAllSuccess());
 
         final container = _container(
           auth: auth,
           index: SessionIndexStorage.withStorage(raw),
+          sessionsMe: sessionsMe,
         );
 
         await container
@@ -303,16 +312,68 @@ void main() {
             .read(multiLineSessionRegistryProvider.notifier)
             .logoutAll();
 
-        expect(result.succeeded, <int>{101});
-        expect(result.failed, <int>{102});
+        // New atomic semantics (handoff §5.4): one /sessions/leave-all
+        // call, all lines succeed together.
+        expect(result.succeeded, <int>{101, 102});
+        expect(result.failed, <int>{});
+        verify(sessionsMe.leaveAll).called(1);
+        // Per-line /roll-worker-logout is NOT called any more.
+        verifyNever(() => auth.logout(any<int>()));
+        expect(
+          container.read(multiLineSessionRegistryProvider),
+          isA<RegistryEmpty>(),
+        );
+      },
+    );
+
+    test(
+      'failure → all lines retained with failedRetryable status',
+      () async {
+        final auth = _MockAuthRepo();
+        final raw = _MockIndexRaw();
+        final sessionsMe = _MockSessionsMeRepo();
+        when(
+          () => raw.read(key: any<String>(named: 'key')),
+        ).thenAnswer((_) async => '[101,102]');
+        when(
+          () => raw.write(
+            key: any<String>(named: 'key'),
+            value: any<String>(named: 'value'),
+          ),
+        ).thenAnswer((_) async {});
+        when(
+          () => auth.getCurrentSession(101),
+        ).thenAnswer((_) async => RollWorkerAuthSuccess(_session(101)));
+        when(
+          () => auth.getCurrentSession(102),
+        ).thenAnswer((_) async => RollWorkerAuthSuccess(_session(102)));
+        when(() => auth.clearStoredToken(any<int>())).thenAnswer((_) async {});
+        when(sessionsMe.leaveAll).thenAnswer(
+          (_) async => const LeaveAllFailure(NetworkFailure()),
+        );
+
+        final container = _container(
+          auth: auth,
+          index: SessionIndexStorage.withStorage(raw),
+          sessionsMe: sessionsMe,
+        );
+
+        await container
+            .read(multiLineSessionRegistryProvider.notifier)
+            .restoreFromStorage();
+
+        final result = await container
+            .read(multiLineSessionRegistryProvider.notifier)
+            .logoutAll();
+
+        expect(result.succeeded, <int>{});
+        expect(result.failed, <int>{101, 102});
         final state = container.read(multiLineSessionRegistryProvider);
         expect(state, isA<RegistryActive>());
         final active = state as RegistryActive;
-        expect(active.sessions.keys.toSet(), <int>{102});
-        expect(
-          active.logoutStatus[102],
-          LineLogoutStatus.failedRetryable,
-        );
+        expect(active.sessions.keys.toSet(), <int>{101, 102});
+        expect(active.logoutStatus[101], LineLogoutStatus.failedRetryable);
+        expect(active.logoutStatus[102], LineLogoutStatus.failedRetryable);
       },
     );
   });

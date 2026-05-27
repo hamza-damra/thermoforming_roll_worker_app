@@ -69,10 +69,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Handoff §7.1 wording (replaces the in-house phrasing).
       expect(
-        find.text(
-          'لا يمكن تركيب هذا الرول الآن، لم تكتمل مدة الحضانة المطلوبة.',
-        ),
+        find.text('هذا الرول لم يكتمل فترة الحضانة الدنيا بعد.'),
         findsOneWidget,
       );
     });

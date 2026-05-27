@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/printing_constants.dart';
+import 'printer_language.dart';
 
-/// One TSPL/TCP printer the worker has configured. The Roll Worker app
-/// supports multiple saved printers; one can be marked default.
+/// One TCP printer the worker has configured. The Roll Worker app
+/// supports multiple saved printers and two wire protocols (TSPL /
+/// Xprinter and ZPL / Zebra) — see [PrinterLanguage]; one can be
+/// marked default.
 @immutable
 class PrinterConfig {
   const PrinterConfig({
@@ -13,6 +16,7 @@ class PrinterConfig {
     this.port = PrintingConstants.defaultPort,
     this.isDefault = false,
     this.timeoutMs = PrintingConstants.connectionTimeoutMs,
+    this.language = PrinterLanguage.tspl,
   });
 
   final String id;
@@ -22,6 +26,10 @@ class PrinterConfig {
   final bool isDefault;
   final int timeoutMs;
 
+  /// Wire protocol the printer speaks. Drives which builder
+  /// (`TsplBuilder` / `ZplBuilder`) the print pipeline routes through.
+  final PrinterLanguage language;
+
   PrinterConfig copyWith({
     String? id,
     String? name,
@@ -29,6 +37,7 @@ class PrinterConfig {
     int? port,
     bool? isDefault,
     int? timeoutMs,
+    PrinterLanguage? language,
   }) {
     return PrinterConfig(
       id: id ?? this.id,
@@ -37,6 +46,7 @@ class PrinterConfig {
       port: port ?? this.port,
       isDefault: isDefault ?? this.isDefault,
       timeoutMs: timeoutMs ?? this.timeoutMs,
+      language: language ?? this.language,
     );
   }
 
@@ -49,9 +59,11 @@ class PrinterConfig {
         other.ip == ip &&
         other.port == port &&
         other.isDefault == isDefault &&
-        other.timeoutMs == timeoutMs;
+        other.timeoutMs == timeoutMs &&
+        other.language == language;
   }
 
   @override
-  int get hashCode => Object.hash(id, name, ip, port, isDefault, timeoutMs);
+  int get hashCode =>
+      Object.hash(id, name, ip, port, isDefault, timeoutMs, language);
 }

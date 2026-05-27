@@ -53,10 +53,7 @@ DioException _failureException({
     statusCode: statusCode,
     data: <String, dynamic>{
       'success': false,
-      'error': <String, dynamic>{
-        'code': code,
-        if (details != null) 'details': details,
-      },
+      'error': <String, dynamic>{'code': code, 'details': ?details},
     },
   ),
 );
@@ -179,10 +176,7 @@ void main() {
       ),
     ).thenThrow(_failureException(statusCode: 423, code: 'OPERATOR_LOCKED'));
 
-    final result = await repo.startBatch(
-      pin: '0000',
-      shiftLineIds: <int>{101},
-    );
+    final result = await repo.startBatch(pin: '0000', shiftLineIds: <int>{101});
 
     expect(
       ((result as BatchAuthFailureResult).failure as BusinessFailure).code,
@@ -190,39 +184,33 @@ void main() {
     );
   });
 
-  test(
-    'LINE_USED_BY_OTHER_WORKER carries the offending id in '
-    'BatchAuthFailureResult.conflictShiftLineIds',
-    () async {
-      when(
-        () => dio.post<dynamic>(
-          ApiPaths.sessionsStartBatch,
-          data: any<Object?>(named: 'data'),
-        ),
-      ).thenThrow(
-        _failureException(
-          statusCode: 409,
-          code: 'ROLL_WORKER_SESSION_LINE_USED_BY_OTHER_WORKER',
-          details: <String, Object?>{
-            'shiftLineId': 102,
-            'ownerOperatorId': 80,
-            'ownerOperatorName': 'someone-else',
-          },
-        ),
-      );
+  test('LINE_USED_BY_OTHER_WORKER carries the offending id in '
+      'BatchAuthFailureResult.conflictShiftLineIds', () async {
+    when(
+      () => dio.post<dynamic>(
+        ApiPaths.sessionsStartBatch,
+        data: any<Object?>(named: 'data'),
+      ),
+    ).thenThrow(
+      _failureException(
+        statusCode: 409,
+        code: 'ROLL_WORKER_SESSION_LINE_USED_BY_OTHER_WORKER',
+        details: <String, Object?>{
+          'shiftLineId': 102,
+          'ownerOperatorId': 80,
+          'ownerOperatorName': 'someone-else',
+        },
+      ),
+    );
 
-      final result = await repo.startBatch(
-        pin: '1234',
-        shiftLineIds: <int>{101, 102},
-      );
+    final result = await repo.startBatch(
+      pin: '1234',
+      shiftLineIds: <int>{101, 102},
+    );
 
-      expect(result, isA<BatchAuthFailureResult>());
-      expect(
-        (result as BatchAuthFailureResult).conflictShiftLineIds,
-        <int>{102},
-      );
-    },
-  );
+    expect(result, isA<BatchAuthFailureResult>());
+    expect((result as BatchAuthFailureResult).conflictShiftLineIds, <int>{102});
+  });
 
   test(
     'LINE_INACTIVE / NOT_FOUND / DUPLICATE also extract the conflict id',
@@ -274,10 +262,7 @@ void main() {
       ),
     );
 
-    final result = await repo.startBatch(
-      pin: '1234',
-      shiftLineIds: <int>{101},
-    );
+    final result = await repo.startBatch(pin: '1234', shiftLineIds: <int>{101});
 
     expect(result, isA<BatchAuthSuccessResult>());
     verify(

@@ -77,7 +77,6 @@ RollWorkerBootstrapLine _line(int thermoLineId, {bool selectable = true}) =>
 /// assertions then only see initial-build / SSE / manual refreshes.
 const RollWorkerBootstrapPollConfig _slowConfig = RollWorkerBootstrapPollConfig(
   safetyNetInterval: Duration(seconds: 100),
-  safetyNetSlowInterval: Duration(seconds: 200),
   eventDebounce: Duration(milliseconds: 20),
 );
 
@@ -414,7 +413,7 @@ void main() {
       );
     });
 
-    test('cadence moves to the slow tier once SSE is connected', () async {
+    test('poll is OFF once SSE is connected (handoff §4)', () async {
       final repo = _MockRepo();
       when(repo.fetch).thenAnswer(
         (_) async => const RollWorkerBootstrapSuccess(<RollWorkerBootstrapLine>[]),
@@ -432,7 +431,9 @@ void main() {
         rollWorkerBootstrapControllerProvider.notifier,
       );
       expect(notifier.sseConnected, isTrue);
-      expect(notifier.currentPollInterval, _slowConfig.safetyNetSlowInterval);
+      // New contract (handoff §4): SSE connected → no poll. The fallback
+      // poll only runs while the link is down.
+      expect(notifier.currentPollInterval, isNull);
     });
 
     test('the safety-net poll keeps re-fetching on its cadence', () async {
@@ -444,7 +445,6 @@ void main() {
       });
       const config = RollWorkerBootstrapPollConfig(
         safetyNetInterval: Duration(milliseconds: 30),
-        safetyNetSlowInterval: Duration(seconds: 200),
         eventDebounce: Duration(milliseconds: 20),
       );
       final container = _container(repo, config: config);
@@ -462,7 +462,6 @@ void main() {
       );
       const config = RollWorkerBootstrapPollConfig(
         safetyNetInterval: Duration(milliseconds: 30),
-        safetyNetSlowInterval: Duration(seconds: 200),
         eventDebounce: Duration(milliseconds: 20),
       );
       final container = _container(repo, config: config);

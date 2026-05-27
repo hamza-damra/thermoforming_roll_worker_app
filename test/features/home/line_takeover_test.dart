@@ -6,7 +6,7 @@ Map<String, dynamic> _baseJson() => <String, dynamic>{
   'shiftLineId': 800,
   'thermoformingLineCode': 'TH-01',
   'thermoformingLineName': 'خط التشكيل 1',
-  'completedRollsInShift': 5,
+  'completedRollsInSession': 5,
   'completedRollsByCurrentWorker': 2,
 };
 

@@ -41,7 +41,7 @@ ShiftLineSummaryRepository _summaryRepo() {
           shiftLineId: id,
           thermoformingLineCode: 'TH-01',
           thermoformingLineName: 'خط التشكيل 1',
-          completedRollsInShift: 0,
+          completedRollsInSession: 0,
           completedRollsByCurrentWorker: 0,
           activeOperatorName: 'مشغل التشكيل',
         ),
@@ -198,8 +198,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byType(NavigationBar), findsOneWidget);
-      expect(find.byType(NavigationDestination), findsNWidgets(2));
+      // New shell (handoff §8 items 6-7): synced PageView + BottomNavigationBar.
+      expect(find.byType(BottomNavigationBar), findsOneWidget);
+      expect(find.byType(PageView), findsOneWidget);
+      // Two tabs → two destinations on the nav.
+      final BottomNavigationBar nav = tester.widget<BottomNavigationBar>(
+        find.byType(BottomNavigationBar),
+      );
+      expect(nav.items.length, 2);
     },
   );
 

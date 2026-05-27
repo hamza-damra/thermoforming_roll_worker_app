@@ -75,7 +75,7 @@ class ReturnedRemainingCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              Expanded(child: Text(_heading, style: AppTextStyles.h3)),
+              const Expanded(child: Text(_heading, style: AppTextStyles.h3)),
             ],
           ),
           const SizedBox(height: 8),

@@ -39,6 +39,26 @@ class ApiPaths {
   /// below is retained for backward compatibility only.
   static const String sessionsStartBatch = '$_rollAppBase/sessions/start-batch';
 
+  /// `GET {base}/sessions/me`.
+  /// Headers: X-Device-Key + X-Session-Token (any of the worker's tokens).
+  /// Returns the worker's identity plus a per-line snapshot (mounted roll,
+  /// active product, blocked / handover / takeover, lifecycle) for every
+  /// ACTIVE session. Authoritative post-login state — one round-trip
+  /// replaces the per-line `/current` loop.
+  static const String sessionsMe = '$_rollAppBase/sessions/me';
+
+  /// `GET {base}/sessions/me/joinable-lines`.
+  /// Headers: X-Device-Key + X-Session-Token. Returns every ACTIVE
+  /// shift-line minus the lines the worker already owns — feeds the
+  /// in-session "add another line" picker.
+  static const String sessionsMeJoinableLines =
+      '$_rollAppBase/sessions/me/joinable-lines';
+
+  /// `POST {base}/sessions/leave-all`.
+  /// Headers: X-Device-Key + X-Session-Token. Empty body. Returns 204.
+  /// Idempotent: returns 204 even when zero sessions are active.
+  static const String sessionsLeaveAll = '$_rollAppBase/sessions/leave-all';
+
   // ─── Roll-worker per-shift-line session restore + logout ──────────────────
 
   /// `GET {base}/shift-lines/{shiftLineId}/roll-worker-session/current`.

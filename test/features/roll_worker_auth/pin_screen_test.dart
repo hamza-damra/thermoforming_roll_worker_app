@@ -30,7 +30,7 @@ ShiftLineSummaryRepository _summaryRepo() {
         shiftLineId: id,
         thermoformingLineCode: 'TH-01',
         thermoformingLineName: 'خط التشكيل 1',
-        completedRollsInShift: 0,
+        completedRollsInSession: 0,
         completedRollsByCurrentWorker: 0,
         activeOperatorName: 'مشغل التشكيل',
       ),
@@ -139,7 +139,8 @@ void main() {
     await tester.tap(find.text('دخول'));
     await tester.pumpAndSettle();
 
-    expect(find.text('رقم تعريف غير صحيح.'), findsOneWidget);
+    // Handoff §7.3 wording.
+    expect(find.text('رمز PIN غير صحيح.'), findsOneWidget);
   });
 
   testWidgets('OPERATOR_LOCKED surfaces locked helper and disables submit', (

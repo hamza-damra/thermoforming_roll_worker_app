@@ -1,7 +1,7 @@
 name: thermoforming_roll_worker
 description: "Taleeb Thermoforming Roll Worker App (تطبيق عامل الرولات)."
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.10.8
@@ -26,12 +26,15 @@ dependencies:
 
   intl: ^0.20.2
 
-  # Printing subsystem (TSPL/socket pipeline adapted from roll_production_app).
+  # Printing subsystem (TSPL/ZPL/socket pipeline adapted from roll_production_app).
   qr: ^3.0.1
   image: ^4.1.7
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   uuid: ^4.3.3
+
+  # Shimmer skeleton — used for true first-load placeholders only.
+  shimmer: ^3.0.0
 
   # Line-takeover alert (sound + vibration). Both are guarded — a missing
   # sound asset or vibration motor falls back gracefully (see

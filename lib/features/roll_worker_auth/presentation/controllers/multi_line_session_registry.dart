@@ -4,6 +4,8 @@ import '../../../../core/errors/app_failure.dart';
 import '../../../../core/errors/error_code.dart';
 import '../../../../core/storage/session_index_storage.dart';
 import '../../../../core/storage/storage_providers.dart';
+import '../../../sessions_me/data/sessions_me_providers.dart';
+import '../../../sessions_me/domain/sessions_me_repository.dart';
 import '../../data/roll_worker_auth_providers.dart';
 import '../../domain/entities/roll_worker_session.dart';
 import '../../domain/roll_worker_auth_repository.dart';
@@ -27,13 +29,23 @@ class MultiLineSessionRegistry
   /// Cold-start / app-resume: read the persisted index, fan out
   /// `/current` calls, drop ids whose response is one of the cascade
   /// codes, retain ids that hit transport-level failures.
+  ///
+  /// On cold start the controller's initial state is [RegistryRestoring],
+  /// so the home shell shows the full-screen checking spinner exactly once.
+  /// On app-resume the state is typically [RegistryActive]; we **must not**
+  /// route through [RegistryRestoring] in that case — doing so would
+  /// collapse the loaded home screen to a spinner for the duration of the
+  /// `/current` fan-out (this was one of the four root causes of the
+  /// 2–3 blink flicker on resume).
   Future<void> restoreFromStorage() async {
     final Set<int> ids = await _index.readIds();
     if (ids.isEmpty) {
       state = const RegistryEmpty();
       return;
     }
-    state = const RegistryRestoring();
+    if (state is! RegistryActive) {
+      state = const RegistryRestoring();
+    }
 
     final List<int> orderedIds = ids.toList(growable: false);
     final List<RollWorkerAuthResult> results = await Future.wait(
@@ -74,9 +86,18 @@ class MultiLineSessionRegistry
       state = const RegistryEmpty();
       return;
     }
+    // Preserve the currently-active pointer across resume so the PageView
+    // doesn't jump back to the first tab on every foreground. Falls back
+    // to the first survivor only when the previous active line is gone.
+    final MultiLineSessionRegistryState current = state;
+    final int? previousActive =
+        current is RegistryActive ? current.activeShiftLineId : null;
+    final int nextActive = previousActive != null && survivors.containsKey(previousActive)
+        ? previousActive
+        : survivors.keys.first;
     state = RegistryActive(
       sessions: survivors,
-      activeShiftLineId: survivors.keys.first,
+      activeShiftLineId: nextActive,
       logoutStatus: <int, LineLogoutStatus>{
         for (final int id in survivors.keys) id: LineLogoutStatus.idle,
       },
@@ -189,9 +210,16 @@ class MultiLineSessionRegistry
     );
   }
 
-  /// Logs out every active line. Each per-line call is independent and
-  /// idempotent on the backend; failed lines stay in the registry with a
-  /// `failedRetryable` flag so the user can retry from the chip menu.
+  /// Logs out every active line in ONE backend round-trip via
+  /// `POST /sessions/leave-all` (handoff §2.3 / §5.4). The repo wipes every
+  /// per-line token from secure storage and clears the session index on
+  /// success — this controller just collapses the registry to
+  /// [RegistryEmpty]. The endpoint is idempotent (returns 204 even when
+  /// zero sessions were active) so a parallel cascade can't make this fail.
+  ///
+  /// On a transport / server failure the registry is left intact with
+  /// every line marked `failedRetryable` so the user can retry from the
+  /// menu — matches the prior per-line fan-out semantics.
   Future<LogoutAllResult> logoutAll() async {
     final MultiLineSessionRegistryState current = state;
     if (current is! RegistryActive) {
@@ -209,60 +237,39 @@ class MultiLineSessionRegistry
       clearLastEvent: true,
     );
 
-    final Map<int, bool> outcomes = <int, bool>{};
-    await Future.wait(
-      targets.map((int id) async {
-        try {
-          await _repo.logout(id);
-          outcomes[id] = true;
-        } catch (_) {
-          outcomes[id] = false;
-        }
-      }),
+    final SessionsMeRepository sessionsMe = ref.read(
+      sessionsMeRepositoryProvider,
     );
+    final LeaveAllResult result = await sessionsMe.leaveAll();
 
-    final Set<int> succeeded = outcomes.entries
-        .where((e) => e.value)
-        .map((e) => e.key)
-        .toSet();
-    final Set<int> failed = outcomes.entries
-        .where((e) => !e.value)
-        .map((e) => e.key)
-        .toSet();
-
-    final MultiLineSessionRegistryState afterCalls = state;
-    if (afterCalls is! RegistryActive) {
-      return LogoutAllResult(succeeded: succeeded, failed: failed);
+    switch (result) {
+      case LeaveAllSuccess():
+        // Server-side AND local tokens / index are now empty. Drop every
+        // line in one transition; no per-line "succeeded/failed" split.
+        state = RegistryEmpty(
+          lastEvent: DeliberateLogout(current.activeShiftLineId),
+        );
+        return LogoutAllResult(
+          succeeded: targets.toSet(),
+          failed: const <int>{},
+        );
+      case LeaveAllFailure():
+        // Everything is still alive on the server. Restore the registry
+        // and mark every line failed-retryable.
+        final MultiLineSessionRegistryState afterCall = state;
+        if (afterCall is RegistryActive) {
+          state = afterCall.copyWith(
+            logoutStatus: <int, LineLogoutStatus>{
+              for (final int id in targets) id: LineLogoutStatus.failedRetryable,
+            },
+            lastEvent: PartialLogoutAll(failed: targets.toSet()),
+          );
+        }
+        return LogoutAllResult(
+          succeeded: const <int>{},
+          failed: targets.toSet(),
+        );
     }
-
-    final Map<int, RollWorkerSession> remaining =
-        <int, RollWorkerSession>{
-          for (final MapEntry<int, RollWorkerSession> entry
-              in afterCalls.sessions.entries)
-            if (!succeeded.contains(entry.key)) entry.key: entry.value,
-        };
-    final Map<int, LineLogoutStatus> remainingStatus = <int, LineLogoutStatus>{
-      for (final int id in remaining.keys) id: LineLogoutStatus.failedRetryable,
-    };
-    await _index.writeIds(remaining.keys.toSet());
-
-    if (remaining.isEmpty) {
-      state = RegistryEmpty(
-        lastEvent: failed.isEmpty ? null : PartialLogoutAll(failed: failed),
-      );
-    } else {
-      final int newActive =
-          remaining.containsKey(afterCalls.activeShiftLineId)
-          ? afterCalls.activeShiftLineId
-          : remaining.keys.first;
-      state = RegistryActive(
-        sessions: remaining,
-        activeShiftLineId: newActive,
-        logoutStatus: remainingStatus,
-        lastEvent: PartialLogoutAll(failed: failed),
-      );
-    }
-    return LogoutAllResult(succeeded: succeeded, failed: failed);
   }
 
   /// Called by feature controllers (scan, previous-roll, label-reprint)

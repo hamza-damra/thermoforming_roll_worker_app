@@ -18,7 +18,12 @@ class _MockAuthRepo extends Mock implements RollWorkerAuthRepository {}
 
 const int kShiftLineId = 800;
 
-MountedRoll _mounted({String id = '777000000001'}) => MountedRoll(
+MountedRoll _mounted({
+  String id = '777000000001',
+  double lastKnownWeightKg = 250.0,
+  int consumptionItemId = 5000,
+  int activeSegmentId = 6000,
+}) => MountedRoll(
   rollId: 1,
   generatedRollId: id,
   rollTypeId: 70,
@@ -27,10 +32,10 @@ MountedRoll _mounted({String id = '777000000001'}) => MountedRoll(
   colorName: 'White',
   productTypeId: 5,
   productTypeName: 'أحمر',
-  consumptionItemId: 5000,
-  activeSegmentId: 6000,
+  consumptionItemId: consumptionItemId,
+  activeSegmentId: activeSegmentId,
   state: 'IN_CONSUMPTION',
-  lastKnownWeightKg: 250.0,
+  lastKnownWeightKg: lastKnownWeightKg,
 );
 
 ProviderContainer _container({
@@ -113,6 +118,50 @@ void main() {
       expect((state as RollScanMounted).roll.generatedRollId, '777000000001');
       expect(state.warnings, isEmpty);
     });
+
+    test(
+      'remount of PARTIALLY_RETURNED roll succeeds with remainder weight as '
+      'lastKnownWeightKg (backend returns IN_CONSUMPTION; shape identical to a '
+      'fresh mount — controller MUST NOT branch on prior state)',
+      () async {
+        final scanRepo = _MockScanRepo();
+        // Simulates the new backend behavior: a roll previously closed with
+        // RETURN_REMAINING (40 kg saved) is rescanned. The backend creates a
+        // new consumption item/segment starting from 40 kg and responds with
+        // state=IN_CONSUMPTION. The Flutter controller cannot tell this apart
+        // from a fresh mount, which is intentional per handoff.
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000001',
+          ),
+        ).thenAnswer(
+          (_) async => RollScanSuccess(
+            _mounted(
+              lastKnownWeightKg: 40.0,
+              consumptionItemId: 5101,
+              activeSegmentId: 6101,
+            ),
+          ),
+        );
+        final container = _container(scanRepo: scanRepo);
+
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000001');
+
+        final state = container.read(rollScanControllerProvider(kShiftLineId));
+        expect(state, isA<RollScanMounted>());
+        final mounted = state as RollScanMounted;
+        expect(mounted.roll.generatedRollId, '777000000001');
+        // Critical assertion: start weight comes from the backend response,
+        // not from any cached original `Roll.actualWeightKg`.
+        expect(mounted.roll.lastKnownWeightKg, 40.0);
+        expect(mounted.roll.state, 'IN_CONSUMPTION');
+        expect(mounted.roll.consumptionItemId, 5101);
+        expect(mounted.roll.activeSegmentId, 6101);
+      },
+    );
 
     test(
       'on success carrying ROLL_CURING_MAXIMUM_EXCEEDED, warnings flow into '
@@ -349,6 +398,8 @@ void main() {
           'rollTypeNotAllowedForProduct':
               ErrorCode.rollTypeNotAllowedForProduct,
           'rollAlreadyConsumed': ErrorCode.rollAlreadyConsumed,
+          'rollSentToGrindingNotReusable':
+              ErrorCode.rollSentToGrindingNotReusable,
           'rollNotFound': ErrorCode.rollNotFound,
           'productionPlanItemRequired': ErrorCode.productionPlanItemRequired,
         };

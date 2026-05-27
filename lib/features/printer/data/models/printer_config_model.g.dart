@@ -23,13 +23,14 @@ class PrinterConfigModelAdapter extends TypeAdapter<PrinterConfigModel> {
       port: fields[3] as int,
       isDefault: fields[4] as bool,
       timeoutMs: fields[5] as int,
+      language: fields[6] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, PrinterConfigModel obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -41,7 +42,9 @@ class PrinterConfigModelAdapter extends TypeAdapter<PrinterConfigModel> {
       ..writeByte(4)
       ..write(obj.isDefault)
       ..writeByte(5)
-      ..write(obj.timeoutMs);
+      ..write(obj.timeoutMs)
+      ..writeByte(6)
+      ..write(obj.language);
   }
 
   @override

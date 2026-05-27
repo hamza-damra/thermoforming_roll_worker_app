@@ -6,8 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/diagnostics/refresh_log.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
+import '../../../sessions_me/presentation/controllers/sse_lifecycle_controller.dart';
 import '../../data/roll_worker_bootstrap_providers.dart';
-import '../../data/roll_worker_lines_sse_providers.dart';
 import '../../domain/entities/roll_worker_bootstrap_line.dart';
 import '../../domain/entities/roll_worker_lines_event.dart';
 import '../../domain/roll_worker_bootstrap_repository.dart';
@@ -17,29 +17,32 @@ import 'selected_shift_line_provider.dart';
 
 /// Drives the pre-login bootstrap picker.
 ///
-/// Architecture (Line State Refresh handoff — mirrors the Pallet Worker app):
+/// Architecture (realtime + line-management handoff §4):
 ///   - The REST `/bootstrap` response is **authoritative**. The picker
 ///     re-renders from it on every refresh.
-///   - The global `/events` SSE channel is **only a refresh trigger** — no
-///     SSE payload is trusted as business state. On any frame the controller
-///     debounces (~250 ms) and silently refetches `/bootstrap`.
+///   - The global `/events` SSE channel (owned by [SseLifecycleController])
+///     is **only a refresh trigger** — no SSE payload is trusted as
+///     business state. This controller registers a listener with the
+///     lifecycle controller; on any frame it debounces (~250 ms) and
+///     silently refetches `/bootstrap`.
 ///   - On SSE (re)connect and on app-resume it refetches `/bootstrap`
-///     immediately (the in-memory broker has no replay, so a gap may have
-///     hidden an event).
-///   - A slow `/bootstrap` poll is a **safety net only** — ~60 s while SSE
-///     is connected, ~30 s while it is down. There is no fast visible poll.
-///   - Background refreshes (SSE / poll / resume) update rows in place — they
-///     never emit [RollWorkerBootstrapLoading], so no full-screen loader
-///     flashes. Only the initial load and pull-to-refresh show the loader.
-///   - The poll + SSE subscription are suspended once the worker logs in
-///     (`RegistryActive`) and resumed if they return to the picker.
+///     immediately (the in-memory broker has no replay).
+///   - A `/bootstrap` poll is a **fallback only** — runs at 2 s while the
+///     SSE link is down, and is fully OFF while SSE is connected. Never
+///     the primary update mechanism.
+///   - Background refreshes (SSE / poll / resume) update rows in place —
+///     they never emit [RollWorkerBootstrapLoading], so no full-screen
+///     loader flashes. Only the initial load and pull-to-refresh show
+///     the loader.
+///   - The poll + frame consumption are suspended once the worker logs in
+///     (`RegistryActive`) and resumed if they return to the picker. The
+///     global SSE subscription itself stays open across that transition
+///     because it's owned by the lifecycle controller, not this one.
 class RollWorkerBootstrapController extends Notifier<RollWorkerBootstrapState> {
   late RollWorkerBootstrapPollConfig _config;
 
-  /// Slow safety-net poll. Exactly one timer runs while the picker is the
-  /// active surface. [_currentInterval] records the cadence the running
-  /// timer was created with so [_recomputePollCadence] can skip a no-op
-  /// restart when the desired cadence is unchanged.
+  /// Fallback REST poll. Runs ONLY while the picker is the active surface
+  /// AND the SSE link is reported disconnected.
   Timer? _pollTimer;
   Duration? _currentInterval;
 
@@ -50,37 +53,43 @@ class RollWorkerBootstrapController extends Notifier<RollWorkerBootstrapState> {
   /// Coalesces a burst of SSE frames into a single debounced refetch.
   Timer? _debounceTimer;
 
-  /// Live subscription to the pre-login `/events` SSE channel.
-  StreamSubscription<RollWorkerLinesStreamItem>? _sseSubscription;
-
-  /// Whether the SSE link is currently connected — selects the slow vs
-  /// safety-net poll cadence tier.
+  /// Whether the SSE link is currently connected — decides whether the
+  /// fallback poll runs.
   bool _sseConnected = false;
 
   /// Monotonic sequence stamped on every [refresh]. A refresh whose stamp
   /// has been superseded by a newer one when its `/bootstrap` response
   /// resolves is discarded, so a slow/out-of-order REST response can never
-  /// apply a stale snapshot over a fresher one (handoff §6). This also
-  /// makes overlapping refreshes (SSE event + poll + resume) safe.
+  /// apply a stale snapshot over a fresher one. This also makes overlapping
+  /// refreshes (SSE event + poll + resume) safe.
   int _refreshSeq = 0;
+
+  /// Bound to [SseLifecycleController] via [addPickerListener] in [build] —
+  /// stored so [_detachFromSseLifecycle] can remove it cleanly.
+  late final void Function(RollWorkerLinesStreamItem) _onSseItemBound;
 
   @override
   RollWorkerBootstrapState build() {
     _config = ref.read(rollWorkerBootstrapPollConfigProvider);
+    _onSseItemBound = _onSseItem;
     ref.onDispose(() {
       _stopPolling();
       _cancelDebounce();
-      _stopSse();
+      _detachFromSseLifecycle();
     });
-    // Suspend the poll + SSE once the worker is logged in (the home screen
-    // owns refresh from there); resume + re-fetch if they return to the
-    // picker.
+    // Suspend the poll + frame consumption once the worker is logged in
+    // (the home screen owns refresh from there); resume + re-fetch if they
+    // return to the picker. The global SSE subscription is owned by
+    // [SseLifecycleController] and stays open across these transitions.
     ref.listen<MultiLineSessionRegistryState>(
       multiLineSessionRegistryProvider,
       (_, next) => _syncForRegistry(next),
     );
+    // Attach to the global SSE lifecycle on a microtask — Riverpod
+    // forbids mutating another provider (addPickerListener / start)
+    // synchronously inside `build`.
+    Future<void>.microtask(_attachToSseLifecycle);
     Future<void>.microtask(() => refresh(trigger: 'initial-build'));
-    _openSse();
     return const RollWorkerBootstrapInitial();
   }
 
@@ -166,29 +175,41 @@ class RollWorkerBootstrapController extends Notifier<RollWorkerBootstrapState> {
     ref.read(pickerShiftLineSelectionProvider.notifier).replaceWith(survivors);
   }
 
-  // ─── Pre-login SSE channel (handoff §2) ────────────────────────────────
+  // ─── SSE lifecycle frame consumption ──────────────────────────────────
 
-  void _openSse() {
-    _sseSubscription?.cancel();
-    _sseConnected = false;
-    _sseSubscription = ref
-        .read(rollWorkerLinesSseClientProvider)
-        .subscribe()
-        .listen(_onSseItem);
+  void _attachToSseLifecycle() {
+    final SseLifecycleController lifecycle = ref.read(
+      sseLifecycleControllerProvider.notifier,
+    );
+    lifecycle.addPickerListener(_onSseItemBound);
+    lifecycle.start();
   }
 
-  void _stopSse() {
-    _sseSubscription?.cancel();
-    _sseSubscription = null;
-    _sseConnected = false;
+  void _detachFromSseLifecycle() {
+    // During provider-container teardown the lifecycle controller may
+    // already be disposed; swallow the read failure so dispose stays
+    // exception-safe.
+    try {
+      ref
+          .read(sseLifecycleControllerProvider.notifier)
+          .removePickerListener(_onSseItemBound);
+    } catch (_) {
+      // Container/provider was already torn down — nothing to detach.
+    }
   }
 
   void _onSseItem(RollWorkerLinesStreamItem item) {
+    // Ignore frames once the worker is logged in — the home shell owns
+    // refresh and the picker is off-screen.
+    final MultiLineSessionRegistryState registry = ref.read(
+      multiLineSessionRegistryProvider,
+    );
+    if (registry is RegistryActive) return;
+
     switch (item) {
       case PickerSseConnected():
         _sseConnected = true;
         refreshLog('picker SSE connected → immediate bootstrap refresh');
-        // Converge on a known snapshot — a gap may have hidden an event.
         unawaited(refresh(trigger: 'sse-connected', background: true));
       case PickerSseReconnected():
         _sseConnected = true;
@@ -197,7 +218,6 @@ class RollWorkerBootstrapController extends Notifier<RollWorkerBootstrapState> {
       case PickerSseTransportError(:final error):
         _sseConnected = false;
         refreshLog('picker SSE transport error → reconnecting: $error');
-        // Move the safety-net poll to the faster (disconnected) tier.
         _recomputePollCadence();
       case PickerSseRefreshTriggered():
         refreshLog('picker SSE event → debounced bootstrap refresh');
@@ -224,27 +244,27 @@ class RollWorkerBootstrapController extends Notifier<RollWorkerBootstrapState> {
     switch (next) {
       case RegistryActive():
         // Worker is logged in — the per-line home screen owns refresh now.
-        refreshLog('registry active → picker poll + SSE suspended');
+        // The global SSE subscription stays open (owned by
+        // [SseLifecycleController]); we only stop *acting* on its frames.
+        refreshLog('registry active → picker poll + frame consumption paused');
         _stopPolling();
         _cancelDebounce();
-        _stopSse();
       case RegistryEmpty():
-        // Back on the picker (deliberate logout / cascade) — re-open SSE
-        // and re-fetch; `refresh()` resumes the safety-net poll.
-        refreshLog('registry emptied → picker re-open SSE + re-fetch');
-        if (_sseSubscription == null) _openSse();
+        // Back on the picker (deliberate logout / cascade) — re-fetch
+        // immediately; [_recomputePollCadence] resumes the fallback poll
+        // iff SSE is currently down.
+        refreshLog('registry emptied → picker re-fetch');
         unawaited(refresh(trigger: 'registry-emptied', background: true));
       case RegistryRestoring():
         break;
     }
   }
 
-  // ─── Slow safety-net poll (handoff §4/§5) ──────────────────────────────
+  // ─── Fallback poll (handoff §4: NO poll while SSE up) ─────────────────
 
-  /// (Re)starts the safety-net poll at the cadence implied by SSE link
-  /// health. A no-op when the desired cadence is already running — this is
-  /// what keeps a single timer alive (no duplicate timers). Suspended while
-  /// logged in.
+  /// (Re)starts the fallback poll ONLY when the picker is active and SSE
+  /// is disconnected. No-op when the desired cadence is already running
+  /// (keeps a single timer alive — no duplicate timers).
   void _recomputePollCadence() {
     final MultiLineSessionRegistryState registry = ref.read(
       multiLineSessionRegistryProvider,
@@ -253,7 +273,11 @@ class RollWorkerBootstrapController extends Notifier<RollWorkerBootstrapState> {
       _stopPolling();
       return;
     }
-    final Duration desired = _desiredInterval();
+    if (_sseConnected) {
+      _stopPolling();
+      return;
+    }
+    final Duration desired = _config.safetyNetInterval;
     if (_pollTimer != null && _currentInterval == desired) return;
     _pollTimer?.cancel();
     _currentInterval = desired;
@@ -263,12 +287,6 @@ class RollWorkerBootstrapController extends Notifier<RollWorkerBootstrapState> {
       (_) => refresh(trigger: 'poll', background: true),
     );
   }
-
-  /// Slow while SSE is connected (SSE is then the primary update path);
-  /// faster while it is down (the poll is the only recovery path).
-  Duration _desiredInterval() => _sseConnected
-      ? _config.safetyNetSlowInterval
-      : _config.safetyNetInterval;
 
   void _stopPolling() {
     _pollTimer?.cancel();

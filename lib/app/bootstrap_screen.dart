@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +9,8 @@ import '../core/widgets/app_scaffold.dart';
 import '../features/home/presentation/screens/multi_line_home_shell.dart';
 import '../features/roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../features/roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
+import '../features/sessions_me/presentation/controllers/sessions_me_controller.dart';
+import '../features/sessions_me/presentation/controllers/sse_lifecycle_controller.dart';
 import '../features/shift_line/presentation/controllers/roll_worker_bootstrap_controller.dart';
 import '../features/shift_line/presentation/screens/active_shift_line_picker_screen.dart';
 
@@ -41,6 +45,19 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
     with WidgetsBindingObserver {
   bool _restoreScheduled = false;
 
+  /// Guards against re-entrant resume cascades — a quick back-and-forth
+  /// foreground/background flip used to fan out 3+ refreshes simultaneously,
+  /// causing PageView/summary controllers to emit two visible state
+  /// transitions in fast succession (the resume-flicker root cause).
+  bool _resumeInFlight = false;
+
+  /// When the most recent resume cascade started. We coalesce another
+  /// resume that fires within [_resumeCoalesceWindow] of the previous one —
+  /// SSE/network blips can re-fire `AppLifecycleState.resumed` without the
+  /// worker actually leaving the app.
+  DateTime? _lastResumeAt;
+  static const Duration _resumeCoalesceWindow = Duration(seconds: 1);
+
   @override
   void initState() {
     super.initState();
@@ -56,17 +73,36 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
     if (lifecycle != AppLifecycleState.resumed) return;
-    refreshLog('app resumed (bootstrap) → picker refresh + session restore');
-    // Re-fetch the picker rows on resume — a gap may have hidden an SSE
-    // event. Background refresh: updates rows in place, no full-screen
-    // loader. The controller also drops picker selections whose line
-    // disappeared in the meantime.
-    ref
-        .read(rollWorkerBootstrapControllerProvider.notifier)
-        .refresh(trigger: 'app-resume', background: true);
-    // Re-discover every persisted session in parallel; stale tokens are
-    // dropped silently, transient transport errors retain the id.
-    ref.read(multiLineSessionRegistryProvider.notifier).restoreFromStorage();
+    unawaited(_handleResume());
+  }
+
+  /// Serializes the resume cascade so the picker, the session registry, and
+  /// the post-login `/sessions/me` refresh run one after another instead of
+  /// in parallel. Eliminates the simultaneous double-state-transition that
+  /// caused the visible 2–3 blink flicker on resume.
+  Future<void> _handleResume() async {
+    final DateTime now = DateTime.now();
+    if (_resumeInFlight) return;
+    if (_lastResumeAt != null &&
+        now.difference(_lastResumeAt!) < _resumeCoalesceWindow) {
+      return;
+    }
+    _resumeInFlight = true;
+    _lastResumeAt = now;
+    refreshLog('app resumed (bootstrap) → serialized refresh cascade');
+    try {
+      await ref
+          .read(rollWorkerBootstrapControllerProvider.notifier)
+          .refresh(trigger: 'app-resume', background: true);
+      await ref
+          .read(multiLineSessionRegistryProvider.notifier)
+          .restoreFromStorage();
+      await ref
+          .read(sessionsMeControllerProvider.notifier)
+          .refresh(trigger: 'app-resume');
+    } finally {
+      _resumeInFlight = false;
+    }
   }
 
   @override
@@ -74,6 +110,9 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
     if (!_restoreScheduled) {
       _restoreScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Start the global SSE subscription BEFORE the registry restore so
+        // any post-login refresh that follows can already react to frames.
+        ref.read(sseLifecycleControllerProvider.notifier).start();
         ref
             .read(multiLineSessionRegistryProvider.notifier)
             .restoreFromStorage();

@@ -173,9 +173,10 @@ void main() {
     await tester.tap(find.text('إرجاع المتبقي'));
     await tester.pumpAndSettle();
 
+    // Handoff §7.2 wording (replaces the in-house phrasing).
     expect(
       find.text(
-        'الوزن المتبقي غير صالح. يجب أن يكون صفراً أو موجباً ولا يتجاوز وزن بداية الجزء.',
+        'الوزن المتبقي غير صالح. يجب أن يكون بين صفر ووزن الرول الحالي.',
       ),
       findsOneWidget,
     );

@@ -4,25 +4,31 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_card.dart';
 
-/// Summary card showing completed-roll counts for the current shift.
+/// Summary card showing the session-scoped completed-roll count.
 ///
-/// [completedRollsByCurrentWorker] subline (`منك: N`) is shown only when > 0.
-/// [isRefreshing] drives a small inline spinner while a background re-fetch is
-/// in flight — the card stays visible with the last good data.
+/// [completedRollsByCurrentWorker] is kept on the wire for contract
+/// continuity, but it equals [completedRollsInSession] now that the counter
+/// is session-scoped. The "منك: N" sub-line is hidden when the two are equal
+/// to avoid a visually duplicated number.
+/// [isRefreshing] drives a small inline spinner while a background re-fetch
+/// is in flight — the card stays visible with the last good data.
 class SummaryCard extends StatelessWidget {
   const SummaryCard({
     super.key,
-    required this.completedRollsInShift,
+    required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
     this.isRefreshing = false,
   });
 
-  final int completedRollsInShift;
+  final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
   final bool isRefreshing;
 
   @override
   Widget build(BuildContext context) {
+    final bool showByCurrentWorker =
+        completedRollsByCurrentWorker > 0 &&
+        completedRollsByCurrentWorker != completedRollsInSession;
     return AppCard(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -31,7 +37,7 @@ class SummaryCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('الرولات المنجزة في المناوبة',
+                const Text('الرولات المنجزة في هذه الجلسة',
                     style: AppTextStyles.metricLabel),
                 const SizedBox(height: 4),
                 Row(
@@ -39,10 +45,10 @@ class SummaryCard extends StatelessWidget {
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     Text(
-                      '$completedRollsInShift',
+                      '$completedRollsInSession',
                       style: AppTextStyles.metricValue,
                     ),
-                    if (completedRollsByCurrentWorker > 0) ...[
+                    if (showByCurrentWorker) ...[
                       const SizedBox(width: 10),
                       Text(
                         'منك: $completedRollsByCurrentWorker',

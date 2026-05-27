@@ -30,7 +30,7 @@ ShiftLineSummary _summaryWithMount({SummaryActiveProduct? activeProduct}) =>
       shiftLineId: _shiftLineId,
       thermoformingLineCode: 'TH-01',
       thermoformingLineName: 'خط التشكيل 1',
-      completedRollsInShift: 5,
+      completedRollsInSession: 5,
       completedRollsByCurrentWorker: 2,
       mountedRoll: _mounted,
       activeProduct: activeProduct,

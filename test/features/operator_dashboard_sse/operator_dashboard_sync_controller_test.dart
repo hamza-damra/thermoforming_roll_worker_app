@@ -87,7 +87,7 @@ ShiftLineSummary _summary({
   shiftLineId: _kShiftLineId,
   thermoformingLineCode: 'TH-01',
   thermoformingLineName: 'خط التشكيل 1',
-  completedRollsInShift: 0,
+  completedRollsInSession: 0,
   completedRollsByCurrentWorker: 0,
   activeOperatorId: activeOperatorName == null ? null : 1,
   activeOperatorName: activeOperatorName,

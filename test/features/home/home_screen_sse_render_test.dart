@@ -13,10 +13,49 @@ import 'package:thermoforming_roll_worker/features/operator_dashboard_sse/presen
 import 'package:thermoforming_roll_worker/features/operator_dashboard_sse/presentation/controllers/operator_dashboard_sync_state.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_providers.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/roll_worker_auth_repository.dart';
+import 'package:thermoforming_roll_worker/features/sessions_me/data/dto/roll_worker_me_response.dart';
+import 'package:thermoforming_roll_worker/features/sessions_me/domain/entities/roll_worker_me.dart';
+import 'package:thermoforming_roll_worker/features/sessions_me/presentation/controllers/sessions_me_controller.dart';
+import 'package:thermoforming_roll_worker/features/sessions_me/presentation/controllers/sessions_me_state.dart';
 
 class _MockSummaryRepo extends Mock implements ShiftLineSummaryRepository {}
 
 class _MockAuthRepo extends Mock implements RollWorkerAuthRepository {}
+
+/// Fake [SessionsMeController] that holds a fixed state — the home screen
+/// reads from `sessionsMeControllerProvider` to render the active-product
+/// chip (post-migration source of truth).
+class _FakeSessionsMe extends SessionsMeController {
+  _FakeSessionsMe(this._initial);
+
+  final SessionsMeState _initial;
+
+  @override
+  SessionsMeState build() => _initial;
+}
+
+/// Builds a single-line [RollWorkerMe] with the given product fields via the
+/// DTO factory — avoids constructing the 24-field `RollWorkerActiveLine`
+/// directly in tests.
+RollWorkerMe _meWithProduct({
+  required int shiftLineId,
+  required int? productId,
+  required String? productName,
+}) {
+  return RollWorkerMeResponse.fromEnvelopeData(<String, dynamic>{
+    'rollWorkerOperatorId': 7,
+    'rollWorkerName': 'x',
+    'lines': <Map<String, dynamic>>[
+      <String, dynamic>{
+        'sessionId': 1,
+        'shiftLineId': shiftLineId,
+        'currentPlanItemProductTypeId': productId,
+        'currentPlanItemProductName': productName,
+        'lineLifecycleStatus': 'ACTIVE',
+      },
+    ],
+  });
+}
 
 /// No-op SSE controller — the home screen calls `start()` on it from
 /// initState; we want to short-circuit the real SSE subscription so the
@@ -66,8 +105,9 @@ Widget _wrap(ProviderContainer container) {
 
 ProviderContainer _makeContainer(
   ShiftLineSummary initialSummary,
-  ShiftLineSummaryRepository repo,
-) {
+  ShiftLineSummaryRepository repo, {
+  SessionsMeState? sessionsMe,
+}) {
   final authRepo = _MockAuthRepo();
   when(() => authRepo.clearStoredToken(any())).thenAnswer((_) async {});
   when(
@@ -78,13 +118,18 @@ ProviderContainer _makeContainer(
       shiftLineSummaryRepositoryProvider.overrideWithValue(repo),
       rollWorkerAuthRepositoryProvider.overrideWithValue(authRepo),
       operatorDashboardSyncControllerProvider.overrideWith(_NoopSync.new),
+      if (sessionsMe != null)
+        sessionsMeControllerProvider.overrideWith(
+          () => _FakeSessionsMe(sessionsMe),
+        ),
     ],
   );
 }
 
 void main() {
   testWidgets(
-    'home renders ActiveProductChip when summary has an active product',
+    'home renders ActiveProductChip from /sessions/me '
+    'currentPlanItemProductName',
     (WidgetTester tester) async {
       final repo = _MockSummaryRepo();
       final container = _makeContainer(
@@ -92,13 +137,20 @@ void main() {
           shiftLineId: _kShiftLineId,
           thermoformingLineCode: 'TH-01',
           thermoformingLineName: 'خط التشكيل 1',
-          completedRollsInShift: 5,
+          completedRollsInSession: 5,
           completedRollsByCurrentWorker: 2,
           activeOperatorName: 'مشغل التشكيل',
           mountedRoll: _mounted,
-          activeProduct: SummaryActiveProduct(productId: 6, name: 'Blue 10kg'),
         ),
         repo,
+        sessionsMe: SessionsMeLoaded(
+          me: _meWithProduct(
+            shiftLineId: _kShiftLineId,
+            productId: 6,
+            productName: 'Blue 10kg',
+          ),
+          fetchedAt: DateTime(2026, 5, 23),
+        ),
       );
       addTearDown(container.dispose);
 
@@ -106,6 +158,41 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Blue 10kg'), findsWidgets);
+      expect(find.text('المنتج الحالي'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'home renders the neutral placeholder chip when /sessions/me has no '
+    'active plan-item product',
+    (WidgetTester tester) async {
+      final repo = _MockSummaryRepo();
+      final container = _makeContainer(
+        const ShiftLineSummary(
+          shiftLineId: _kShiftLineId,
+          thermoformingLineCode: 'TH-01',
+          thermoformingLineName: 'خط التشكيل 1',
+          completedRollsInSession: 5,
+          completedRollsByCurrentWorker: 2,
+          activeOperatorName: 'مشغل التشكيل',
+          mountedRoll: _mounted,
+        ),
+        repo,
+        sessionsMe: SessionsMeLoaded(
+          me: _meWithProduct(
+            shiftLineId: _kShiftLineId,
+            productId: null,
+            productName: null,
+          ),
+          fetchedAt: DateTime(2026, 5, 23),
+        ),
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_wrap(container));
+      await tester.pumpAndSettle();
+
+      expect(find.text('لا يوجد منتج حالي'), findsOneWidget);
       expect(find.text('المنتج الحالي'), findsOneWidget);
     },
   );
@@ -119,7 +206,7 @@ void main() {
           shiftLineId: _kShiftLineId,
           thermoformingLineCode: 'TH-01',
           thermoformingLineName: 'خط التشكيل 1',
-          completedRollsInShift: 5,
+          completedRollsInSession: 5,
           completedRollsByCurrentWorker: 2,
           activeOperatorName: 'مشغل التشكيل',
           mountedRoll: _mounted,
@@ -159,7 +246,8 @@ void main() {
   );
 
   testWidgets(
-    'applying PRODUCT_CHANGED updates the chip without forcing a remount',
+    'applying PRODUCT_CHANGED no longer drives the chip — chip source is '
+    '/sessions/me only (post-migration)',
     (WidgetTester tester) async {
       final repo = _MockSummaryRepo();
       final container = _makeContainer(
@@ -167,7 +255,7 @@ void main() {
           shiftLineId: _kShiftLineId,
           thermoformingLineCode: 'TH-01',
           thermoformingLineName: 'خط التشكيل 1',
-          completedRollsInShift: 5,
+          completedRollsInSession: 5,
           completedRollsByCurrentWorker: 2,
           activeOperatorName: 'مشغل التشكيل',
           mountedRoll: _mounted,
@@ -179,9 +267,11 @@ void main() {
       await tester.pumpWidget(_wrap(container));
       await tester.pumpAndSettle();
 
-      // Initially no active-product chip.
-      expect(find.text('المنتج الحالي'), findsNothing);
+      // Chip falls back to the placeholder because /sessions/me is idle.
+      expect(find.text('لا يوجد منتج حالي'), findsOneWidget);
 
+      // The legacy SSE applier still mutates summary state but the chip
+      // is decoupled from it.
       container
           .read(shiftLineSummaryControllerProvider(_kShiftLineId).notifier)
           .applyProductChanged(
@@ -193,8 +283,9 @@ void main() {
           );
       await tester.pump();
 
-      expect(find.text('المنتج الحالي'), findsOneWidget);
-      expect(find.text('Blue 10kg'), findsWidgets);
+      // Chip stayed on the placeholder — Blue 10kg never appears via SSE.
+      expect(find.text('لا يوجد منتج حالي'), findsOneWidget);
+      expect(find.text('Blue 10kg'), findsNothing);
       // Mount intact.
       expect(find.text('TP-1  •  777000000001'), findsOneWidget);
     },

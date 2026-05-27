@@ -2,54 +2,58 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/util/line_label_mapper.dart';
 
-/// One-row compact line header: `[TH-01]  خط التشكيل 1`.
+/// Centered friendly machine name shown at the top of the home screen.
 ///
-/// [lineCode] and [lineName] are nullable while the summary is loading.
-/// [lineIndex] provides the 1-based fallback label (`خط 1`) when code is null.
+/// User-facing surfaces never show the technical wire code
+/// (`TF_LINE_1`, `TF_LINE_2`, ...) — see [LineLabelMapper.friendlyMachineName]
+/// for the resolution order. The per-line accent color, when supplied, is
+/// rendered as a small dot beside the centered name so workers still get a
+/// quick visual cue for the active line in multi-line mode.
 class CompactLineHeader extends StatelessWidget {
   const CompactLineHeader({
     super.key,
     required this.lineCode,
     required this.lineName,
     required this.lineIndex,
+    this.accentColor,
   });
 
   final String? lineCode;
   final String? lineName;
   final int lineIndex;
+  final Color? accentColor;
 
   @override
   Widget build(BuildContext context) {
-    final String codeText = lineCode ?? 'خط $lineIndex';
-    final String nameText = lineName ?? '';
+    final String displayName = LineLabelMapper.friendlyMachineName(
+      thermoformingLineCode: lineCode,
+      thermoformingLineName: lineName,
+      oneBasedIndex: lineIndex,
+    );
+    final Color dotColor = accentColor ?? AppColors.primary;
     return Row(
-      children: [
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          width: 10,
+          height: 10,
           decoration: BoxDecoration(
-            color: AppColors.primaryLight,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            codeText,
-            style: AppTextStyles.label.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w700,
-            ),
+            color: dotColor,
+            shape: BoxShape.circle,
           ),
         ),
-        if (nameText.isNotEmpty) ...[
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              nameText,
-              style: AppTextStyles.bodyLarge,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            displayName,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.h3,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
           ),
-        ],
+        ),
       ],
     );
   }

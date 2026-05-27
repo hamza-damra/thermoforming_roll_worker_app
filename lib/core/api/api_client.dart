@@ -1,4 +1,7 @@
+import 'dart:io' show HttpClient, X509Certificate;
+
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 
 import '../config/app_config.dart';
@@ -12,17 +15,20 @@ import 'session_token_interceptor.dart';
 /// - Adds the `X-Session-Token` header only on requests tagged via
 ///   [SessionTokenInterceptor.attach] (roll-operation endpoints).
 /// - Logs request/response metadata in debug builds with secrets redacted.
+/// - When [AppConfig.allowStagingSelfSignedCert] is true (staging/debug
+///   only), accepts self-signed certificates ONLY for the configured
+///   staging hosts. Production hosts are never covered.
 ///
-/// Will be exposed through `apiProviders.dart` so the rest of the app gets
-/// a single configured instance.
+/// Exposed through `api_providers.dart` so the rest of the app gets a
+/// single configured instance — REST and SSE share it.
 class ApiClientFactory {
   ApiClientFactory._();
 
-  /// Default timeouts tuned for production-floor networks (slow LTE, busy
-  /// switches). Keep modest so the connectivity banner can surface fast.
-  static const Duration connectTimeout = Duration(seconds: 8);
-  static const Duration receiveTimeout = Duration(seconds: 12);
-  static const Duration sendTimeout = Duration(seconds: 12);
+  /// Default timeouts. Tuned for production-floor networks (slow LTE, busy
+  /// switches). Aligned with the Operator app config pattern.
+  static const Duration connectTimeout = Duration(seconds: 15);
+  static const Duration receiveTimeout = Duration(seconds: 30);
+  static const Duration sendTimeout = Duration(seconds: 30);
 
   static Dio create(AppConfig config) {
     if (config.isMissing) {
@@ -40,13 +46,21 @@ class ApiClientFactory {
         sendTimeout: sendTimeout,
         responseType: ResponseType.json,
         contentType: 'application/json',
-        // Default validateStatus (2xx → success). 4xx/5xx surface as
-        // DioException(type: badResponse) and are routed through
-        // ApiErrorParser, which reads the `{success:false, error:{...}}`
-        // envelope and produces a BusinessFailure / ServerFailure.
         headers: <String, String>{'Accept': 'application/json'},
       ),
     );
+
+    if (config.allowStagingSelfSignedCert) {
+      dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final HttpClient client = HttpClient()
+            ..badCertificateCallback = (X509Certificate cert, String host,
+                    int port) =>
+                AppConfig.stagingTlsHosts.contains(host);
+          return client;
+        },
+      );
+    }
 
     dio.interceptors
       ..add(DeviceKeyInterceptor(config.deviceKey))

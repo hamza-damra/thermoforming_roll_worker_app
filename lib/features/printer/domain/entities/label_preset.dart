@@ -99,7 +99,18 @@ class DefaultPresets {
     marginMm: 4,
   );
 
+  /// Factory-standard 100×100 mm preset — first in [all] so a fresh
+  /// install picks it as the default; see [PrintingConstants.defaultPresetId].
+  static const LabelPreset preset100x100 = LabelPreset(
+    id: 'default_100x100',
+    name: '100×100 مم',
+    widthMm: 100,
+    heightMm: 100,
+    marginMm: 4,
+  );
+
   static const List<LabelPreset> all = <LabelPreset>[
+    preset100x100,
     preset40x30,
     preset50x25,
     preset50x30,

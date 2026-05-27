@@ -3,26 +3,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Cadence config for the pre-login bootstrap picker.
 ///
-/// The picker is driven by the global `/events` SSE channel: every frame is
-/// a "refresh now" trigger and a debounced `/bootstrap` refetch follows. A
-/// periodic `/bootstrap` poll exists **only as a slow safety net** for
-/// missed events (the in-memory broker has no replay) — it is never the
-/// primary update mechanism (Line State Refresh handoff).
+/// Contract (realtime + line-management handoff §4):
+///   - **SSE connected** → NO poll runs at all. Zero. The picker updates via
+///     SSE refresh triggers debounced into a `/bootstrap` refetch.
+///   - **SSE disconnected** → poll `/bootstrap` every 2 seconds. This is
+///     the only recovery path until SSE reconnects.
 @immutable
 class RollWorkerBootstrapPollConfig {
   const RollWorkerBootstrapPollConfig({
-    this.safetyNetInterval = const Duration(seconds: 30),
-    this.safetyNetSlowInterval = const Duration(seconds: 60),
+    this.safetyNetInterval = const Duration(seconds: 2),
     this.eventDebounce = const Duration(milliseconds: 250),
   });
 
-  /// Safety-net poll cadence while the SSE link is down / reconnecting —
-  /// the only recovery path until SSE is healthy again.
+  /// Fallback poll cadence while the SSE link is down — the only recovery
+  /// path until SSE is healthy again. Fixed at 2 s per handoff §4.
   final Duration safetyNetInterval;
-
-  /// Safety-net poll cadence while SSE is connected — slow, since SSE is
-  /// then the primary update path.
-  final Duration safetyNetSlowInterval;
 
   /// A burst of SSE frames collapses into one `/bootstrap` refetch after
   /// this debounce window.

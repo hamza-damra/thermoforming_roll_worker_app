@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import '../core/printing_constants.dart';
 import 'models/label_preset_model.dart';
 import 'models/printer_config_model.dart';
 import 'models/printing_settings_model.dart';
@@ -21,6 +22,10 @@ class PrintingLocalStorage {
   static const String _presetsBoxName = 'custom_presets';
   static const String _settingsBoxName = 'printing_settings';
   static const String _settingsKey = 'settings';
+
+  /// One-shot migration flag — once set, the 100×100 default migration
+  /// never re-applies even if the worker later picks 50×30 deliberately.
+  static const String _presetMigrationV1Key = 'preset_migration_v1';
 
   static Box<PrinterConfigModel>? _printersBox;
   static Box<LabelPresetModel>? _presetsBox;
@@ -46,7 +51,41 @@ class PrintingLocalStorage {
     _presetsBox = await Hive.openBox<LabelPresetModel>(_presetsBoxName);
     _settingsBox = await Hive.openBox<PrintingSettingsModel>(_settingsBoxName);
 
+    await _runPresetMigrationV1();
+
     _initialized = true;
+  }
+
+  /// One-shot migration: bump `lastPresetId` to `default_100x100` when the
+  /// worker hasn't explicitly chosen a non-default preset.
+  ///
+  /// Idempotent — guarded by the presence of [_presetMigrationV1Key] in
+  /// the settings box. We migrate when:
+  ///   - `selectedPresetId` is null (fresh install / never picked one), or
+  ///   - `selectedPresetId` matches the pre-migration default
+  ///     ([PrintingConstants.legacyDefaultPresetId]).
+  /// Custom user picks (including their own custom preset ids) are left
+  /// untouched.
+  ///
+  /// The migration uses a sentinel `PrintingSettingsModel` instance written
+  /// to the dedicated key purely to mark the migration as complete — the
+  /// box is typed so we can't store a plain bool. Subsequent boots see
+  /// the key present (`containsKey`) and skip.
+  static Future<void> _runPresetMigrationV1() async {
+    final Box<PrintingSettingsModel>? box = _settingsBox;
+    if (box == null) return;
+    if (box.containsKey(_presetMigrationV1Key)) return;
+
+    final PrintingSettingsModel? settings = box.get(_settingsKey);
+    if (settings != null) {
+      final String? current = settings.selectedPresetId;
+      if (current == null ||
+          current == PrintingConstants.legacyDefaultPresetId) {
+        settings.selectedPresetId = PrintingConstants.defaultPresetId;
+        await settings.save();
+      }
+    }
+    await box.put(_presetMigrationV1Key, PrintingSettingsModel());
   }
 
   static Box<PrinterConfigModel> get printersBox =>
