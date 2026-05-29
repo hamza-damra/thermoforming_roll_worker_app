@@ -10,17 +10,23 @@ enum ClosePreviousRollAction { fullConsume, returnRemaining, sendToGrinding }
 /// close flows. Returns the picked action, or `null` if the worker
 /// dismissed.
 Future<ClosePreviousRollAction?> showClosePreviousRollDialog(
-  BuildContext context,
-) {
+  BuildContext context, {
+  Color? accent,
+}) {
   return showDialog<ClosePreviousRollAction>(
     context: context,
     barrierDismissible: true,
-    builder: (BuildContext context) => const _ClosePreviousRollDialog(),
+    builder: (BuildContext context) => _ClosePreviousRollDialog(accent: accent),
   );
 }
 
 class _ClosePreviousRollDialog extends StatelessWidget {
-  const _ClosePreviousRollDialog();
+  const _ClosePreviousRollDialog({this.accent});
+
+  /// Active line accent used by the two non-destructive choices and the
+  /// cancel button. The grinding choice stays on the warning color because it
+  /// is the only genuinely risky option. Falls back to the brand primary.
+  final Color? accent;
 
   static const String _title = 'إغلاق الرول السابق';
   static const String _detail = 'اختر طريقة إغلاق الرول الحالي';
@@ -31,6 +37,7 @@ class _ClosePreviousRollDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Color color = accent ?? AppColors.primary;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
@@ -46,6 +53,7 @@ class _ClosePreviousRollDialog extends StatelessWidget {
             _ChoiceTile(
               icon: Icons.check_circle_outline_rounded,
               label: _fullConsume,
+              color: color,
               onTap: () => Navigator.of(
                 context,
               ).pop(ClosePreviousRollAction.fullConsume),
@@ -54,6 +62,7 @@ class _ClosePreviousRollDialog extends StatelessWidget {
             _ChoiceTile(
               icon: Icons.assignment_return_outlined,
               label: _returnRemaining,
+              color: color,
               onTap: () => Navigator.of(
                 context,
               ).pop(ClosePreviousRollAction.returnRemaining),
@@ -62,7 +71,8 @@ class _ClosePreviousRollDialog extends StatelessWidget {
             _ChoiceTile(
               icon: Icons.recycling_rounded,
               label: _grinding,
-              accent: true,
+              // Only the grinding choice is highlighted as a warning.
+              color: AppColors.warning,
               onTap: () => Navigator.of(
                 context,
               ).pop(ClosePreviousRollAction.sendToGrinding),
@@ -71,6 +81,7 @@ class _ClosePreviousRollDialog extends StatelessWidget {
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: color),
             onPressed: () => Navigator.of(context).pop(),
             child: const Text(_cancel),
           ),
@@ -85,18 +96,21 @@ class _ChoiceTile extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
-    this.accent = false,
+    required this.color,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final bool accent;
+
+  /// Border + icon color for this choice (line accent, or warning for the
+  /// risky grinding option).
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final Color border = accent ? AppColors.accent : AppColors.primary;
-    final Color iconColor = accent ? AppColors.accent : AppColors.primary;
+    final Color border = color;
+    final Color iconColor = color;
     return Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(12),

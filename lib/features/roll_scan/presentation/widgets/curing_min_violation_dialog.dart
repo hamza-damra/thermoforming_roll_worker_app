@@ -16,19 +16,24 @@ import '../../../../core/widgets/app_primary_button.dart';
 Future<void> showCuringMinViolationDialog(
   BuildContext context, {
   required BusinessFailure failure,
+  Color? accent,
 }) {
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext context) =>
-        _CuringMinViolationDialog(failure: failure),
+        _CuringMinViolationDialog(failure: failure, accent: accent),
   );
 }
 
 class _CuringMinViolationDialog extends StatelessWidget {
-  const _CuringMinViolationDialog({required this.failure});
+  const _CuringMinViolationDialog({required this.failure, this.accent});
 
   final BusinessFailure failure;
+
+  /// Active line accent for the OK button (header icon stays the semantic
+  /// error color).
+  final Color? accent;
 
   static const String _title = 'لا يمكن تركيب الرول';
   static const String _ok = 'حسناً';
@@ -56,6 +61,7 @@ class _CuringMinViolationDialog extends StatelessWidget {
         actions: [
           AppPrimaryButton(
             label: _ok,
+            color: accent,
             onPressed: () => Navigator.of(context).pop(),
           ),
         ],

@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
 
 class AppTextStyles {
   AppTextStyles._();
 
-  static const String fontFamily = 'Roboto';
+  /// Shared Arabic typeface — Cairo, the same family the Palletizing operator
+  /// app uses (`GoogleFonts.cairoTextTheme()`), so both apps look identical.
+  ///
+  /// Resolved through `google_fonts` at runtime. The individual [TextStyle]
+  /// constants below intentionally leave `fontFamily` null so they inherit
+  /// this family from the ambient theme (see `AppTheme.light`); only the
+  /// non-text-theme theme entries (app-bar title, buttons, …) apply it
+  /// explicitly via `copyWith(fontFamily: fontFamily)`.
+  static String get fontFamily => GoogleFonts.cairo().fontFamily ?? 'Cairo';
 
   static const TextStyle appBarTitle = TextStyle(
     fontSize: 20,

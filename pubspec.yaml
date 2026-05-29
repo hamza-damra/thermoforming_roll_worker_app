@@ -26,6 +26,12 @@ dependencies:
 
   intl: ^0.20.2
 
+  # Arabic typography — Cairo, shared with the Palletizing operator app so both
+  # apps render the same font (see core/theme/app_text_styles.dart). google_fonts
+  # caches the fetched font on first run; offline cold-starts fall back to the
+  # platform font until the cache warms.
+  google_fonts: ^6.2.1
+
   # Printing subsystem (TSPL/ZPL/socket pipeline adapted from roll_production_app).
   qr: ^3.0.1
   image: ^4.1.7

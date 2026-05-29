@@ -14,16 +14,23 @@ import '../controllers/roll_scan_controller.dart';
 /// Returns the validated 12-digit string when confirmed, or `null` if the
 /// worker cancelled. Validation is purely format-level — the backend remains
 /// the source of truth for whether the roll exists / is mountable.
-Future<String?> showManualRollInputDialog(BuildContext context) {
+Future<String?> showManualRollInputDialog(
+  BuildContext context, {
+  Color? accent,
+}) {
   return showDialog<String>(
     context: context,
     barrierDismissible: false,
-    builder: (BuildContext context) => const _ManualRollInputDialog(),
+    builder: (BuildContext context) => _ManualRollInputDialog(accent: accent),
   );
 }
 
 class _ManualRollInputDialog extends StatefulWidget {
-  const _ManualRollInputDialog();
+  const _ManualRollInputDialog({this.accent});
+
+  /// Active line accent — tints the QR icon, the focused input border and the
+  /// confirm button. Falls back to the brand primary when null.
+  final Color? accent;
 
   @override
   State<_ManualRollInputDialog> createState() => _ManualRollInputDialogState();
@@ -58,6 +65,7 @@ class _ManualRollInputDialogState extends State<_ManualRollInputDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final Color accent = widget.accent ?? AppColors.primary;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
@@ -81,12 +89,13 @@ class _ManualRollInputDialogState extends State<_ManualRollInputDialog> {
               inputFormatters: <TextInputFormatter>[
                 FilteringTextInputFormatter.digitsOnly,
               ],
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: _hint,
                 counterText: '',
-                prefixIcon: Icon(
-                  Icons.qr_code_rounded,
-                  color: AppColors.primary,
+                prefixIcon: Icon(Icons.qr_code_rounded, color: accent),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: accent, width: 1.5),
                 ),
               ),
               onSubmitted: (_) => _onSubmit(),
@@ -107,14 +116,18 @@ class _ManualRollInputDialogState extends State<_ManualRollInputDialog> {
               Expanded(
                 child: AppSecondaryButton(
                   label: _cancel,
+                  color: accent,
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
+                // No leading icon here: the icon + the half-width Expanded cell
+                // squeezed the Arabic label into an ellipsis ("تركيب…"). Text
+                // alone renders the full "تركيب الرول".
                 child: AppPrimaryButton(
                   label: _submit,
-                  icon: Icons.check_rounded,
+                  color: accent,
                   onPressed: _onSubmit,
                 ),
               ),

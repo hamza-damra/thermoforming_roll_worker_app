@@ -10,6 +10,7 @@ class AppSecondaryButton extends StatelessWidget {
     required this.onPressed,
     this.icon,
     this.isLoading = false,
+    this.color,
   });
 
   final String label;
@@ -17,18 +18,29 @@ class AppSecondaryButton extends StatelessWidget {
   final IconData? icon;
   final bool isLoading;
 
+  /// Outline + icon + label color. Falls back to the brand primary so the
+  /// button can follow the active line accent when supplied by the caller.
+  final Color? color;
+
   @override
   Widget build(BuildContext context) {
     final bool disabled = onPressed == null || isLoading;
+    final Color c = color ?? AppColors.primary;
     return OutlinedButton(
       onPressed: disabled ? null : onPressed,
+      style: color == null
+          ? null
+          : OutlinedButton.styleFrom(
+              foregroundColor: c,
+              side: BorderSide(color: c, width: 1.5),
+            ),
       child: isLoading
-          ? const SizedBox(
+          ? SizedBox(
               height: 22,
               width: 22,
               child: CircularProgressIndicator(
                 strokeWidth: 2.5,
-                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                valueColor: AlwaysStoppedAnimation<Color>(c),
               ),
             )
           : Row(
@@ -36,14 +48,12 @@ class AppSecondaryButton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (icon != null) ...[
-                  Icon(icon, size: 22, color: AppColors.primary),
+                  Icon(icon, size: 22, color: c),
                   const SizedBox(width: 10),
                 ],
                 Text(
                   label,
-                  style: AppTextStyles.button.copyWith(
-                    color: AppColors.primary,
-                  ),
+                  style: AppTextStyles.button.copyWith(color: c),
                 ),
               ],
             ),

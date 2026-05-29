@@ -17,6 +17,7 @@ Future<void> showReturnRemainingDialog(
   BuildContext context, {
   required int shiftLineId,
   double? maxAllowedKg,
+  Color? accent,
 }) {
   return showDialog<void>(
     context: context,
@@ -24,6 +25,7 @@ Future<void> showReturnRemainingDialog(
     builder: (BuildContext context) => _ReturnRemainingDialog(
       shiftLineId: shiftLineId,
       maxAllowedKg: maxAllowedKg,
+      accent: accent,
     ),
   );
 }
@@ -32,10 +34,14 @@ class _ReturnRemainingDialog extends ConsumerStatefulWidget {
   const _ReturnRemainingDialog({
     required this.shiftLineId,
     this.maxAllowedKg,
+    this.accent,
   });
 
   final int shiftLineId;
   final double? maxAllowedKg;
+
+  /// Active line accent for the weight field + confirm/cancel buttons.
+  final Color? accent;
 
   static const String title = 'تأكيد إرجاع المتبقي';
   static const String body = 'هل تريد إرجاع الوزن المتبقي من هذا الرول؟';
@@ -130,6 +136,7 @@ class _ReturnRemainingDialogState
               maxAllowedKg: widget.maxAllowedKg,
               enabled: !resolving,
               errorText: _localError,
+              accent: widget.accent,
               onChanged: (_) {
                 if (_localError != null) {
                   setState(() => _localError = null);
@@ -149,6 +156,7 @@ class _ReturnRemainingDialogState
               Expanded(
                 child: AppSecondaryButton(
                   label: _ReturnRemainingDialog.cancel,
+                  color: widget.accent,
                   onPressed: resolving
                       ? null
                       : () => Navigator.of(context).pop(),
@@ -158,7 +166,7 @@ class _ReturnRemainingDialogState
               Expanded(
                 child: AppPrimaryButton(
                   label: _ReturnRemainingDialog.submit,
-                  icon: Icons.assignment_return_outlined,
+                  color: widget.accent,
                   isLoading: resolving,
                   onPressed: resolving ? null : _submit,
                 ),

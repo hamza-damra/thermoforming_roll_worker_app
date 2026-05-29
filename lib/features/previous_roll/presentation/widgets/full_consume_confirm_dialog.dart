@@ -16,19 +16,23 @@ import '../controllers/previous_roll_resolution_state.dart';
 Future<void> showFullConsumeConfirmDialog(
   BuildContext context, {
   required int shiftLineId,
+  Color? accent,
 }) {
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext context) =>
-        _FullConsumeConfirmDialog(shiftLineId: shiftLineId),
+        _FullConsumeConfirmDialog(shiftLineId: shiftLineId, accent: accent),
   );
 }
 
 class _FullConsumeConfirmDialog extends ConsumerWidget {
-  const _FullConsumeConfirmDialog({required this.shiftLineId});
+  const _FullConsumeConfirmDialog({required this.shiftLineId, this.accent});
 
   final int shiftLineId;
+
+  /// Active line accent for the confirm + cancel buttons.
+  final Color? accent;
 
   static const String _title = 'تأكيد استهلاك كامل';
   static const String _question = 'هل تريد إغلاق هذا الرول كاستهلاك كامل؟';
@@ -79,6 +83,7 @@ class _FullConsumeConfirmDialog extends ConsumerWidget {
               Expanded(
                 child: AppSecondaryButton(
                   label: _cancel,
+                  color: accent,
                   onPressed: resolving
                       ? null
                       : () => Navigator.of(context).pop(),
@@ -88,7 +93,7 @@ class _FullConsumeConfirmDialog extends ConsumerWidget {
               Expanded(
                 child: AppPrimaryButton(
                   label: _confirm,
-                  icon: Icons.check_rounded,
+                  color: accent,
                   isLoading: resolving,
                   onPressed: resolving
                       ? null

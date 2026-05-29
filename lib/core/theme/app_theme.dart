@@ -15,19 +15,26 @@ class AppTheme {
       error: AppColors.error,
     );
 
+    // Shared Cairo family (matches the Palletizing app). `ThemeData.fontFamily`
+    // propagates it to the textTheme + ambient DefaultTextStyle, but the
+    // non-text-theme slots below (app-bar title, buttons, snackbar, inputs)
+    // are not covered by that, so each applies the family explicitly — this is
+    // what guarantees there are no mixed fonts anywhere.
+    final String family = AppTextStyles.fontFamily;
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: AppColors.scaffold,
-      fontFamily: AppTextStyles.fontFamily,
+      fontFamily: family,
 
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: AppColors.primary,
         foregroundColor: AppColors.textOnPrimary,
         elevation: 0,
         centerTitle: true,
-        titleTextStyle: AppTextStyles.appBarTitle,
-        iconTheme: IconThemeData(color: AppColors.textOnPrimary),
+        titleTextStyle: AppTextStyles.appBarTitle.copyWith(fontFamily: family),
+        iconTheme: const IconThemeData(color: AppColors.textOnPrimary),
       ),
 
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -41,7 +48,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          textStyle: AppTextStyles.button,
+          textStyle: AppTextStyles.button.copyWith(fontFamily: family),
         ),
       ),
 
@@ -54,7 +61,10 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          textStyle: AppTextStyles.button.copyWith(color: AppColors.primary),
+          textStyle: AppTextStyles.button.copyWith(
+            color: AppColors.primary,
+            fontFamily: family,
+          ),
         ),
       ),
 
@@ -64,6 +74,7 @@ class AppTheme {
           textStyle: AppTextStyles.bodyLarge.copyWith(
             fontWeight: FontWeight.w600,
             color: AppColors.primary,
+            fontFamily: family,
           ),
         ),
       ),
@@ -105,18 +116,19 @@ class AppTheme {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.error, width: 1.5),
         ),
-        labelStyle: AppTextStyles.label,
-        hintStyle: AppTextStyles.label,
+        labelStyle: AppTextStyles.label.copyWith(fontFamily: family),
+        hintStyle: AppTextStyles.label.copyWith(fontFamily: family),
       ),
 
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         backgroundColor: AppColors.primaryDark,
-        contentTextStyle: const TextStyle(
+        contentTextStyle: TextStyle(
           color: AppColors.textOnPrimary,
           fontSize: 15,
           fontWeight: FontWeight.w600,
+          fontFamily: family,
         ),
       ),
 

@@ -6,10 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/services/takeover_alert_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
-import '../../../../core/ui/factory_machine_labels.dart';
-import '../../../../core/widgets/app_card.dart';
-import '../../../../core/widgets/app_primary_button.dart';
+import '../../../../core/ui/line_labels.dart';
 import '../../../../core/widgets/app_scaffold.dart';
+import '../../../../core/widgets/failure_snackbar.dart';
+import '../../../../core/widgets/primary_bottom_action.dart';
 import '../../../../core/widgets/success_snackbar.dart';
 import '../../../label_reprint/presentation/controllers/label_reprint_controller.dart';
 import '../../../label_reprint/presentation/screens/label_preview_screen.dart';
@@ -35,12 +35,16 @@ import '../controllers/acknowledged_takeover_controller.dart';
 import '../controllers/shift_line_summary_controller.dart';
 import '../controllers/shift_line_summary_state.dart';
 import '../../../sessions_me/domain/entities/roll_worker_active_line.dart';
-import '../widgets/active_product_chip.dart';
-import '../widgets/compact_line_header.dart';
+import '../../../sessions_me/domain/entities/roll_worker_me.dart';
+import '../../domain/entities/allowed_roll.dart';
+import '../widgets/empty_roll_state_card.dart';
 import '../widgets/compact_mounted_roll_card.dart';
 import '../widgets/consumed_rolls_section.dart';
 import '../widgets/home_shimmer_skeleton.dart';
+import '../widgets/leave_line_confirm_dialog.dart';
+import '../widgets/product_allowed_rolls_card.dart';
 import '../widgets/returned_remaining_card.dart';
+import '../widgets/roll_worker_session_card.dart';
 import '../widgets/summary_card.dart';
 import '../widgets/takeover_banner.dart';
 import '../widgets/takeover_blocked_card.dart';
@@ -57,30 +61,37 @@ import '../widgets/takeover_strings.dart';
 /// no session card. The compact header + summary card + optional mounted-roll
 /// card are all driven by [ShiftLineSummaryController].
 ///
-/// Navigation between machines is handled by the parent [MultiLineHomeShell]
-/// via a [NavigationBar] (≥2 sessions) — this screen never shows TH codes.
+/// Navigation between machines is handled by the parent [MachineDashboardShell]
+/// via its top [TabBar] (≥2 sessions) — this screen never shows TH codes.
 class RollWorkerHomeScreen extends ConsumerStatefulWidget {
   const RollWorkerHomeScreen({
     super.key,
     required this.shiftLineId,
     this.lineIndex = 1,
+    this.lineLabel,
+    this.showLineHeader = false,
     this.standaloneScaffold = true,
-    this.headerActions,
     this.accentColor,
   });
 
   final int shiftLineId;
 
-  /// 1-based position of this machine among active sessions (ماكنة أ، …).
+  /// 1-based position of this machine among active sessions (خط أ، …).
   final int lineIndex;
 
-  /// When `true` (default, single-line mode) the screen wraps itself in an
-  /// [AppScaffold] with its own AppBar. When `false` (multi-line shell owns
-  /// the AppBar) only the body is rendered.
-  final bool standaloneScaffold;
+  /// Backend-derived line label (`خط أ`, `خط ب`, …) supplied by the shell.
+  /// Falls back to a label derived from [lineIndex] when absent.
+  final String? lineLabel;
 
-  /// Extra AppBar actions injected by the shell (printer icon, overflow menu).
-  final List<Widget>? headerActions;
+  /// Whether to render the in-body line-label header. The shell sets this only
+  /// when its tab bar is hidden (single active line) so the label is never
+  /// duplicated beside the tabs.
+  final bool showLineHeader;
+
+  /// When `true` (default, single-line mode) the screen wraps itself in an
+  /// [AppScaffold] with its own AppBar. When `false` (the
+  /// [MachineDashboardShell] owns the AppBar) only the body is rendered.
+  final bool standaloneScaffold;
 
   /// Per-line accent color used by the multi-line shell to tint the line
   /// header strip + scan button — `null` falls back to the global accent.
@@ -89,12 +100,14 @@ class RollWorkerHomeScreen extends ConsumerStatefulWidget {
   final Color? accentColor;
 
   static const String title = 'تطبيق موظف الرولات';
-  static const String scanRoll = 'مسح رول';
-  static const String closePreviousRoll = 'إغلاق الرول السابق';
-  static const String emptyMountHeading = 'لا يوجد رول مركّب حاليًا';
-  static const String emptyMountDetail = 'امسح رمز QR لتركيب رول جديد';
+  // Fixed bottom action labels — state-driven: register when no roll is
+  // mounted, close when one is.
+  static const String registerRoll = 'تسجيل رول';
+  static const String closeCurrentRoll = 'إغلاق الرول الحالي';
   static const String closedRollSnack = 'تم إغلاق الرول بنجاح';
+  static const String refreshFailed = 'تعذر تحديث البيانات. حاول مرة أخرى.';
   static const String printerSettingsTooltip = 'إعدادات الطباعة';
+  static const String _leftLineSnack = 'تم تسجيل خروجك من الخط';
 
   @override
   ConsumerState<RollWorkerHomeScreen> createState() =>
@@ -159,7 +172,10 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
   Future<void> _openScanScreen(BuildContext context) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => ScanRollScreen(shiftLineId: _shiftLineId),
+        builder: (_) => ScanRollScreen(
+          shiftLineId: _shiftLineId,
+          accentColor: widget.accentColor,
+        ),
       ),
     );
   }
@@ -174,24 +190,62 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
 
     final ClosePreviousRollAction? action = await showClosePreviousRollDialog(
       context,
+      accent: widget.accentColor,
     );
     if (action == null || !context.mounted) return;
 
     switch (action) {
       case ClosePreviousRollAction.fullConsume:
-        await showFullConsumeConfirmDialog(context, shiftLineId: _shiftLineId);
+        await showFullConsumeConfirmDialog(
+          context,
+          shiftLineId: _shiftLineId,
+          accent: widget.accentColor,
+        );
       case ClosePreviousRollAction.returnRemaining:
         await showReturnRemainingDialog(
           context,
           shiftLineId: _shiftLineId,
           maxAllowedKg: roll.lastKnownWeightKg,
+          accent: widget.accentColor,
         );
       case ClosePreviousRollAction.sendToGrinding:
         await showGrindingDialog(
           context,
           shiftLineId: _shiftLineId,
           maxAllowedKg: roll.lastKnownWeightKg,
+          accent: widget.accentColor,
         );
+    }
+  }
+
+  /// Pull-to-refresh: re-fetches everything that drives this screen — the
+  /// line summary (operator, product, allowed rolls, mounted roll, session
+  /// stats, consumed rolls) and `/sessions/me` (roll-worker identity + product
+  /// name). Both controllers swallow failures into their own state and never
+  /// throw, so we inspect the result and surface a single failure snackbar.
+  /// The selected line/tab lives in the registry + shell TabController, so a
+  /// refresh never changes it.
+  Future<void> _onRefresh() async {
+    final summaryNotifier = ref.read(
+      shiftLineSummaryControllerProvider(_shiftLineId).notifier,
+    );
+    await Future.wait<void>(<Future<void>>[
+      ref
+          .read(sessionsMeControllerProvider.notifier)
+          .refresh(trigger: 'pull-to-refresh'),
+      summaryNotifier.refresh(),
+    ]);
+    if (!mounted) return;
+    final ShiftLineSummaryState summaryState = ref.read(
+      shiftLineSummaryControllerProvider(_shiftLineId),
+    );
+    final SessionsMeState meState = ref.read(sessionsMeControllerProvider);
+    final bool failed =
+        summaryState is SummaryError ||
+        meState is SessionsMeError ||
+        summaryNotifier.lastRefreshFailed;
+    if (failed) {
+      FailureSnackbar.show(context, RollWorkerHomeScreen.refreshFailed);
     }
   }
 
@@ -272,52 +326,123 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
   }
 
   /// Resolves the current product from `/sessions/me` (production-plan
-  /// driven). Falls back to a neutral placeholder chip when no active plan
-  /// item is present. The legacy `summary.currentProductType*` fields are no
-  /// longer used for the chip.
+  /// driven). Renders the readable [CurrentProductCard] (placeholder copy
+  /// when no active plan item is present). The legacy
+  /// `summary.currentProductType*` fields are not used here.
   ///
-  /// Uses `select` to scope rebuilds to the (id, name) pair for THIS line —
-  /// otherwise a fallback poll or refresh-flag flip would rebuild the chip
+  /// Uses `select` to scope rebuilds to the product name for THIS line —
+  /// otherwise a fallback poll or refresh-flag flip would rebuild the card
   /// on every tick.
-  Widget _buildActiveProductChip() {
-    final (int?, String?) selected = ref.watch(
-      sessionsMeControllerProvider.select<(int?, String?)>((s) {
-        if (s is! SessionsMeLoaded) return (null, null);
+  /// Combined "current product + allowed rolls" card. The product name comes
+  /// from `/sessions/me` (post-migration source of truth); the allowed rolls
+  /// come from the line summary and refresh together with it.
+  Widget _buildProductAndAllowedCard(List<AllowedRoll> allowedRolls) {
+    final String? name = ref.watch(
+      sessionsMeControllerProvider.select<String?>((s) {
+        if (s is! SessionsMeLoaded) return null;
         for (final RollWorkerActiveLine l in s.me.lines) {
           if (l.shiftLineId == _shiftLineId) {
-            return (l.currentPlanItemProductTypeId, l.currentPlanItemProductName);
+            return l.currentPlanItemProductName;
           }
         }
-        return (null, null);
+        return null;
       }),
     );
-    final int? id = selected.$1;
-    final String? name = selected.$2;
-    if (name == null) return const ActiveProductChip.placeholder();
-    return ActiveProductChip(productName: name, productId: id);
+    return ProductAllowedRollsCard(
+      productName: name,
+      allowedRolls: allowedRolls,
+      accent: widget.accentColor,
+    );
   }
 
-  bool _showThumbZoneScan({
-    required ShiftLineSummaryState summaryState,
-    required PreviousRollResolutionState resolutionState,
-    required ShiftLineSummary? summary,
-  }) {
-    if (resolutionState is PreviousRollResolved) return false;
-    if (summaryState is SummaryLoading) return false;
-    if (summaryState is SummaryLoaded) {
-      return summary!.mountedRoll == null;
+  /// User-facing line label (`خط أ`, …). Prefers the shell-supplied backend
+  /// label, falling back to one derived from the 1-based line index.
+  String get _lineLabel =>
+      widget.lineLabel ?? LineLabels.label(fallbackIndex: widget.lineIndex);
+
+  /// Resolves the logged-in roll employee for THIS line from `/sessions/me`:
+  /// the worker's display name + this line's raw session start. Returns a
+  /// value record so `select` only rebuilds the card when these fields change.
+  ({String? name, DateTime? startedAt, bool present}) get _rollEmployeeInfo {
+    return ref.watch(
+      sessionsMeControllerProvider.select((SessionsMeState s) {
+        final RollWorkerMe? me = switch (s) {
+          SessionsMeLoaded(:final me) => me,
+          SessionsMeLoading(previous: final me?) => me,
+          SessionsMeError(previous: final me?) => me,
+          _ => null,
+        };
+        if (me == null) {
+          return (name: null, startedAt: null, present: false);
+        }
+        for (final RollWorkerActiveLine l in me.lines) {
+          if (l.shiftLineId == _shiftLineId) {
+            return (
+              name: me.rollWorkerName,
+              startedAt: l.sessionStartedAt,
+              present: true,
+            );
+          }
+        }
+        return (name: null, startedAt: null, present: false);
+      }),
+    );
+  }
+
+  /// Single merged worker-session card (collapsed: worker name + leave;
+  /// expanded: current operator + relative session start). The operator name
+  /// comes from the line summary; the worker identity + start time from
+  /// `/sessions/me`.
+  Widget _buildWorkerSessionCard(String? operatorName) {
+    final ({String? name, DateTime? startedAt, bool present}) info =
+        _rollEmployeeInfo;
+    final bool loggedIn =
+        info.present && (info.name?.trim().isNotEmpty ?? false);
+    return RollWorkerSessionCard(
+      workerName: loggedIn ? info.name : null,
+      operatorName: operatorName,
+      sessionStartedAt: info.startedAt,
+      accent: widget.accentColor,
+      // Leave is only offered when an employee is logged into this line. The
+      // dialog runs the existing per-line logout API — never a fake logout.
+      onLeave: loggedIn ? () => _openLeaveDialog(info.name) : null,
+    );
+  }
+
+  /// Reads the current product name for THIS line from `/sessions/me` so the
+  /// leave dialog can show it as context — read (not watched) at tap time.
+  String? _currentProductName() {
+    final SessionsMeState s = ref.read(sessionsMeControllerProvider);
+    final RollWorkerMe? me = switch (s) {
+      SessionsMeLoaded(:final me) => me,
+      SessionsMeLoading(previous: final me?) => me,
+      SessionsMeError(previous: final me?) => me,
+      _ => null,
+    };
+    if (me == null) return null;
+    for (final RollWorkerActiveLine l in me.lines) {
+      if (l.shiftLineId == _shiftLineId) return l.currentPlanItemProductName;
     }
-    if (summaryState is SummaryError) return true;
-    return false;
+    return null;
+  }
+
+  Future<void> _openLeaveDialog(String? employeeName) async {
+    final bool? left = await LeaveLineConfirmDialog.show(
+      context,
+      shiftLineId: _shiftLineId,
+      employeeName: employeeName,
+      lineLabel: _lineLabel,
+      productName: _currentProductName(),
+    );
+    if (left == true && mounted) {
+      SuccessSnackbar.show(context, RollWorkerHomeScreen._leftLineSnack);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final ShiftLineSummaryState summaryState = ref.watch(
       shiftLineSummaryControllerProvider(_shiftLineId),
-    );
-    final PreviousRollResolutionState resolutionState = ref.watch(
-      previousRollResolutionControllerProvider(_shiftLineId),
     );
 
     ref.listen<RollScanState>(rollScanControllerProvider(_shiftLineId), (
@@ -333,8 +458,8 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
 
     // Whenever /sessions/me reports a fresher snapshot, refresh THIS line's
     // /summary too — this is the "refresh /summary only for currently
-    // active/visible lines" rule. Each visible PerLinePage owns this
-    // listener, so an off-screen line in the PageView still updates on
+    // active/visible lines" rule. Each visible PerMachineTab owns this
+    // listener, so an off-screen line in the TabBarView still updates on
     // tab focus via the initial load + this listener firing once the page
     // becomes built.
     ref.listen<SessionsMeState>(sessionsMeControllerProvider, (prev, next) {
@@ -442,66 +567,58 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
     final bool noActiveOperator = summary?.noActiveOperator ?? false;
     final bool lineUnavailable = workBlocked || noActiveOperator;
 
-    final bool showThumbScan =
-        !lineUnavailable &&
-        _showThumbZoneScan(
-          summaryState: summaryState,
-          resolutionState: resolutionState,
-          summary: summary,
-        );
+    // The fixed bottom action is state-driven: when a roll is mounted it
+    // closes the current roll (`إغلاق الرول الحالي`), otherwise it registers a
+    // new one (`تسجيل رول`). It is hidden only while the first load is still
+    // resolving (shimmer) or the line is unavailable for roll work — never
+    // both buttons at once.
+    final SummaryMountedRoll? mountedRoll = summary?.mountedRoll;
+    final bool showBottomAction =
+        !lineUnavailable && summaryState is! SummaryLoading;
 
     final List<Widget> listChildren = <Widget>[
-      if (!widget.standaloneScaffold) ...[
-        CompactLineHeader(
-          lineCode: summary?.thermoformingLineCode,
-          lineName: summary?.thermoformingLineName,
-          lineIndex: widget.lineIndex,
-          accentColor: widget.accentColor,
-        ),
-        const SizedBox(height: 12),
+      // 1. Line header. The line tab already carries the identity (`خط أ`/
+      //    `خط ب`), so this is shown ONLY when the shell hides its tab bar
+      //    (single active line) — never as a duplicate chip beside the tabs.
+      if (widget.showLineHeader) ...<Widget>[
+        _LineHeader(label: _lineLabel, accent: widget.accentColor),
+        const SizedBox(height: 10),
       ],
-      if (takeover != null && takeover.isActive) ...[
+      if (takeover != null && takeover.isActive) ...<Widget>[
         TakeoverBanner(shiftLineId: _shiftLineId, takeover: takeover),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
       ],
       if (summaryState is SummaryLoading)
-        const HomeShimmerSkeleton()
-      else if (summary != null) ...[
-        Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: _buildActiveProductChip(),
-        ),
+        HomeShimmerSkeleton(accent: widget.accentColor)
+      else if (summary != null) ...<Widget>[
+        // 1. Merged worker-session card (FIRST): worker name + leave action;
+        //    expands to the current operator + relative session start. Replaces
+        //    the old separate operator + roll-employee cards.
+        _buildWorkerSessionCard(summary.activeOperatorName),
         const SizedBox(height: 12),
-        SummaryCard(
-          completedRollsInSession: summary.completedRollsInSession,
-          completedRollsByCurrentWorker: summary.completedRollsByCurrentWorker,
-          isRefreshing: isRefreshing,
-        ),
+        // 2. Combined current product + allowed rolls (informational only —
+        //    the backend still validates every scan/mount server-side).
+        _buildProductAndAllowedCard(summary.allowedRolls),
         const SizedBox(height: 12),
-        ConsumedRollsSection(
-          rolls: summary.consumedRolls,
-          // Reprint is suppressed while the line is unavailable (handover,
-          // takeover blocked, no operator) — the worker can't act on the
-          // physical roll right now anyway.
-          //
-          // When enabled, the per-row `labelTimestamp` and
-          // `reprintLabelType` from /summary are passed as overrides so
-          // the print pipeline never substitutes device time and the
-          // GRINDING scrap icon is rendered correctly.
-          onReprint: lineUnavailable
-              ? null
-              : (id) {
-                  final overrides = _reprintOverridesFor(id);
-                  _onReprintTap(
-                    context,
-                    id,
-                    overrideTimestamp: overrides.timestamp,
-                    labelType: overrides.labelType,
-                  );
-                },
-        ),
+        // 3. Mounted roll / current roll state — or the blocked/waiting card
+        //    when the line is unavailable for roll work.
+        if (lineUnavailable)
+          TakeoverBlockedCard(
+            // `blocked` keeps its backend reason (card falls back to the
+            // generic handover copy); a plain no-operator state shows the
+            // dedicated waiting message.
+            reason: workBlocked
+                ? summary.blockedReason
+                : TakeoverStrings.noActiveOperator,
+          )
+        else
+          _MountSection(
+            summaryMountedRoll: summary.mountedRoll,
+            accentColor: widget.accentColor,
+          ),
         const SizedBox(height: 12),
-        if (summary.returnedRemainingRoll != null) ...[
+        // 4. Returned-remaining banner after an operator incompatible switch.
+        if (summary.returnedRemainingRoll != null) ...<Widget>[
           ReturnedRemainingCard(
             snapshot: summary.returnedRemainingRoll!,
             onAcknowledge: () => ref
@@ -520,153 +637,162 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
           ),
           const SizedBox(height: 12),
         ],
-      ],
-      if (lineUnavailable)
-        TakeoverBlockedCard(
-          // `blocked` keeps its backend reason (card falls back to the
-          // generic handover copy); a plain no-operator state shows the
-          // dedicated waiting message.
-          reason: workBlocked
-              ? summary?.blockedReason
-              : TakeoverStrings.noActiveOperator,
-        )
-      else
-        _MountSection(
-          shiftLineId: _shiftLineId,
-          summaryMountedRoll: summary?.mountedRoll,
-          onCloseTap: (roll) => _openCloseFlow(context, roll),
+        // 5. Lower-priority session stats + consumed-rolls history — kept LAST
+        //    so the history never dominates the first screen.
+        SummaryCard(
+          completedRollsInSession: summary.completedRollsInSession,
+          completedRollsByCurrentWorker: summary.completedRollsByCurrentWorker,
+          isRefreshing: isRefreshing,
+          accent: widget.accentColor,
         ),
-      if (showThumbScan) const SizedBox(height: 24),
+        const SizedBox(height: 12),
+        ConsumedRollsSection(
+          rolls: summary.consumedRolls,
+          accent: widget.accentColor,
+          // Reprint is suppressed while the line is unavailable (handover,
+          // takeover blocked, no operator) — the worker can't act on the
+          // physical roll right now anyway.
+          //
+          // When enabled, the per-row `labelTimestamp` and `reprintLabelType`
+          // from /summary are passed as overrides so the print pipeline never
+          // substitutes device time and the GRINDING scrap icon renders
+          // correctly.
+          onReprint: lineUnavailable
+              ? null
+              : (id) {
+                  final overrides = _reprintOverridesFor(id);
+                  _onReprintTap(
+                    context,
+                    id,
+                    overrideTimestamp: overrides.timestamp,
+                    labelType: overrides.labelType,
+                  );
+                },
+        ),
+        const SizedBox(height: 10),
+      ]
+      else
+        // First-load failure with no prior data: keep the empty mount card
+        // live so the worker can retry; the fixed bottom button stays
+        // "تسجيل رول" so a scan can recover the line.
+        _MountSection(
+          summaryMountedRoll: null,
+          accentColor: widget.accentColor,
+        ),
     ];
 
     final Widget scrollable = RefreshIndicator(
-      onRefresh: () => ref
-          .read(shiftLineSummaryControllerProvider(_shiftLineId).notifier)
-          .refresh(),
+      // Pull-to-refresh refetches the summary AND /sessions/me (operator,
+      // roll worker, product, allowed rolls, mounted roll, session data).
+      onRefresh: _onRefresh,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        // AlwaysScrollable so the gesture works even when the content is
+        // shorter than the viewport (empty / error / waiting states). The
+        // generous bottom padding keeps the last card clear of the fixed
+        // bottom action (which sits in its own row below this scroll view, so
+        // it can never overlap the list).
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: listChildren,
       ),
     );
 
-    final Widget body = showThumbScan
+    // State-driven fixed bottom action — close the mounted roll, or register a
+    // new one. Never both; hidden while loading / line unavailable.
+    final Widget body = showBottomAction
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+            children: <Widget>[
               Expanded(child: scrollable),
-              SafeArea(
-                top: false,
-                minimum: EdgeInsets.zero,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: AppPrimaryButton(
-                    label: RollWorkerHomeScreen.scanRoll,
-                    icon: Icons.qr_code_scanner_rounded,
-                    onPressed: () => _openScanScreen(context),
-                    // Per-line accent (handoff §8 item 8: scan button is
-                    // one of the surfaces tinted with the line color).
-                    color: widget.accentColor,
-                  ),
+              if (mountedRoll != null)
+                PrimaryBottomAction(
+                  label: RollWorkerHomeScreen.closeCurrentRoll,
+                  icon: Icons.archive_outlined,
+                  onPressed: () => _openCloseFlow(context, mountedRoll),
+                  color: widget.accentColor,
+                )
+              else
+                PrimaryBottomAction(
+                  label: RollWorkerHomeScreen.registerRoll,
+                  icon: Icons.qr_code_scanner_rounded,
+                  onPressed: () => _openScanScreen(context),
+                  color: widget.accentColor,
                 ),
-              ),
             ],
           )
         : scrollable;
 
     if (!widget.standaloneScaffold) return body;
 
-    final String appBarTitle = FactoryMachineLabels.titleForOneBasedIndex(
-      widget.lineIndex,
-    );
-
     return AppScaffold(
-      title: appBarTitle,
+      title: _lineLabel,
       actions: <Widget>[
         IconButton(
           tooltip: RollWorkerHomeScreen.printerSettingsTooltip,
           onPressed: () => _openPrinterSettings(context),
           icon: const Icon(Icons.print_rounded),
         ),
-        ...?widget.headerActions,
       ],
       body: body,
     );
   }
 }
 
+/// Renders the mounted-roll card (when a roll is mounted) or the empty-state
+/// card. The close action is NOT here — it is the screen's state-driven fixed
+/// bottom button (`إغلاق الرول الحالي`), so this section only shows the card.
 class _MountSection extends StatelessWidget {
   const _MountSection({
-    required this.shiftLineId,
     required this.summaryMountedRoll,
-    required this.onCloseTap,
+    this.accentColor,
   });
 
-  final int shiftLineId;
   final SummaryMountedRoll? summaryMountedRoll;
-  final ValueChanged<SummaryMountedRoll> onCloseTap;
+  final Color? accentColor;
 
   @override
   Widget build(BuildContext context) {
     final SummaryMountedRoll? roll = summaryMountedRoll;
     if (roll != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          CompactMountedRollCard(roll: roll),
-          const SizedBox(height: 12),
-          AppPrimaryButton.accent(
-            label: RollWorkerHomeScreen.closePreviousRoll,
-            icon: Icons.archive_outlined,
-            onPressed: () => onCloseTap(roll),
-          ),
-        ],
-      );
+      return CompactMountedRollCard(roll: roll, accentColor: accentColor);
     }
-
-    return const _EmptyMountPromptCard();
+    return EmptyRollStateCard(accent: accentColor);
   }
 }
 
-class _EmptyMountPromptCard extends StatelessWidget {
-  const _EmptyMountPromptCard();
+/// Compact top-of-content header carrying the line identity (`خط أ`, …) as an
+/// accent-tinted pill. Shown in shell mode where the screen owns no AppBar.
+class _LineHeader extends StatelessWidget {
+  const _LineHeader({required this.label, this.accent});
+
+  final String label;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      borderRadius: 18,
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 72,
-              height: 72,
-              decoration: const BoxDecoration(
-                color: AppColors.primaryLight,
-                shape: BoxShape.circle,
+    final Color color = accent ?? AppColors.primary;
+    return Row(
+      children: <Widget>[
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withValues(alpha: 0.30)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(Icons.linear_scale_rounded, size: 18, color: color),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: AppTextStyles.h3.copyWith(color: color),
               ),
-              child: const Icon(
-                Icons.inventory_2_outlined,
-                size: 36,
-                color: AppColors.primary,
-              ),
-            ),
+            ],
           ),
-          const SizedBox(height: 18),
-          const Text(
-            RollWorkerHomeScreen.emptyMountHeading,
-            style: AppTextStyles.h2,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            RollWorkerHomeScreen.emptyMountDetail,
-            style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

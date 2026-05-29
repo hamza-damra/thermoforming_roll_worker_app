@@ -89,6 +89,13 @@ const SummaryMountedRoll _mounted = SummaryMountedRoll(
   lastKnownWeightKg: 100.0,
 );
 
+void _useTallSurface(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1200, 4000);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
 Widget _wrap(ProviderContainer container) {
   return UncontrolledProviderScope(
     container: container,
@@ -131,6 +138,7 @@ void main() {
     'home renders ActiveProductChip from /sessions/me '
     'currentPlanItemProductName',
     (WidgetTester tester) async {
+      _useTallSurface(tester);
       final repo = _MockSummaryRepo();
       final container = _makeContainer(
         const ShiftLineSummary(
@@ -166,6 +174,7 @@ void main() {
     'home renders the neutral placeholder chip when /sessions/me has no '
     'active plan-item product',
     (WidgetTester tester) async {
+      _useTallSurface(tester);
       final repo = _MockSummaryRepo();
       final container = _makeContainer(
         const ShiftLineSummary(
@@ -200,6 +209,7 @@ void main() {
   testWidgets(
     'applying ROLL_RETURNED_REMAINING surfaces the post-incompatible-switch card',
     (WidgetTester tester) async {
+      _useTallSurface(tester);
       final repo = _MockSummaryRepo();
       final container = _makeContainer(
         const ShiftLineSummary(
@@ -240,8 +250,10 @@ void main() {
       expect(find.text('تم إرجاع المتبقي بواسطة المشغل'), findsOneWidget);
       // Reprint affordance is present because canPrintLabel == true.
       expect(find.text('إعادة طباعة الليبل'), findsOneWidget);
-      // Mounted card disappears — the mount was cleared.
-      expect(find.text('TP-1  •  777000000001'), findsNothing);
+      // Mounted card disappears — the mount was cleared. The roll *type* code
+      // only renders inside the mounted card (the returned-remaining card
+      // shows product names, not the roll type), so its absence is precise.
+      expect(find.textContaining('TP-1'), findsNothing);
     },
   );
 
@@ -249,6 +261,7 @@ void main() {
     'applying PRODUCT_CHANGED no longer drives the chip — chip source is '
     '/sessions/me only (post-migration)',
     (WidgetTester tester) async {
+      _useTallSurface(tester);
       final repo = _MockSummaryRepo();
       final container = _makeContainer(
         const ShiftLineSummary(
@@ -287,7 +300,7 @@ void main() {
       expect(find.text('لا يوجد منتج حالي'), findsOneWidget);
       expect(find.text('Blue 10kg'), findsNothing);
       // Mount intact.
-      expect(find.text('TP-1  •  777000000001'), findsOneWidget);
+      expect(find.textContaining('777000000001'), findsOneWidget);
     },
   );
 }

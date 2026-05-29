@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
 import 'package:thermoforming_roll_worker/core/theme/app_theme.dart';
 import 'package:thermoforming_roll_worker/features/home/data/shift_line_summary_providers.dart';
 import 'package:thermoforming_roll_worker/features/home/domain/entities/shift_line_summary.dart';
@@ -31,6 +34,15 @@ ShiftLineSummary _summary({
   activeOperatorName: activeOperatorName,
 );
 
+void _useTallSurface(WidgetTester tester) {
+  // The redesigned dashboard stacks many cards; give the ListView a large
+  // viewport so the lower-priority summary/consumed sections are laid out.
+  tester.view.physicalSize = const Size(1200, 4000);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
 Widget _wrap({
   required _MockSummaryRepo summaryRepo,
   required _MockAuthRepo authRepo,
@@ -53,8 +65,9 @@ Widget _wrap({
 
 void main() {
   testWidgets(
-    'idle state: shows machine title, summary card, and thumb-zone "مسح رول" CTA',
+    'idle state: shows machine title, summary card, and fixed "تسجيل رول" CTA',
     (WidgetTester tester) async {
+      _useTallSurface(tester);
       final summaryRepo = _MockSummaryRepo();
       final authRepo = _MockAuthRepo();
       when(
@@ -66,22 +79,24 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // App bar shows machine label (ماكنة أ) instead of TH code.
-      expect(find.text('ماكنة أ'), findsOneWidget);
+      // App bar shows line label (خط أ) instead of TH code or machine label.
+      expect(find.text('خط أ'), findsOneWidget);
       // Summary card shows completed count.
       expect(find.text('8'), findsOneWidget);
       // "منك: 3" subline is shown when completedRollsByCurrentWorker > 0.
       expect(find.text('منك: 3'), findsOneWidget);
-      // Primary scan button is visible (thumb zone).
-      expect(find.text('مسح رول'), findsOneWidget);
-      expect(find.text('لا يوجد رول مركّب حاليًا'), findsOneWidget);
-      expect(find.text('امسح رمز QR لتركيب رول جديد'), findsOneWidget);
+      // Fixed register CTA is visible when no roll is mounted.
+      expect(find.text(RollWorkerHomeScreen.registerRoll), findsOneWidget);
+      // Empty mounted-roll card (message + helper).
+      expect(find.text('لا يوجد رول مركب حالياً'), findsOneWidget);
+      expect(find.text('اضغط تسجيل رول لتركيب رول جديد'), findsOneWidget);
     },
   );
 
   testWidgets(
     'when backend returns a mounted roll, compact card and close button appear',
     (WidgetTester tester) async {
+      _useTallSurface(tester);
       final summaryRepo = _MockSummaryRepo();
       final authRepo = _MockAuthRepo();
 
@@ -104,16 +119,19 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Compact mounted-roll card shows roll type code and generated ID.
-      expect(find.textContaining('TP-1'), findsOneWidget);
+      // Compact mounted-roll card shows the serial only (roll type + current
+      // weight were intentionally removed).
       expect(find.textContaining('777000000001'), findsOneWidget);
-      // Weight line.
-      expect(find.textContaining('250.0'), findsOneWidget);
-      // Close-roll CTA is present; product change is not offered in this app.
-      expect(find.text('إغلاق الرول السابق'), findsOneWidget);
+      expect(find.text('الرول المركب حالياً'), findsOneWidget);
+      expect(find.text('قيد الاستهلاك'), findsOneWidget);
+      // Roll type and current weight are no longer shown on the mounted card.
+      expect(find.textContaining('TP-1'), findsNothing);
+      expect(find.textContaining('250.0'), findsNothing);
+      // Close-roll CTA is the fixed bottom action when a roll is mounted.
+      expect(find.text(RollWorkerHomeScreen.closeCurrentRoll), findsOneWidget);
       expect(find.text('تغيير المنتج'), findsNothing);
-      // Scan CTA is hidden when a roll is mounted.
-      expect(find.text('مسح رول'), findsNothing);
+      // Register CTA is hidden when a roll is mounted (state-driven button).
+      expect(find.text(RollWorkerHomeScreen.registerRoll), findsNothing);
     },
   );
 
@@ -122,6 +140,7 @@ void main() {
     (WidgetTester tester) async {
       final summaryRepo = _MockSummaryRepo();
       final authRepo = _MockAuthRepo();
+      _useTallSurface(tester);
       when(
         () => summaryRepo.fetchSummary(shiftLineId: kShiftLineId),
       ).thenAnswer(
@@ -136,8 +155,8 @@ void main() {
       // Waiting/unavailable card replaces the mount section.
       expect(find.text(TakeoverStrings.noActiveOperator), findsOneWidget);
       // Roll work is not offered while no operator owns the line.
-      expect(find.text(RollWorkerHomeScreen.scanRoll), findsNothing);
-      expect(find.text('لا يوجد رول مركّب حاليًا'), findsNothing);
+      expect(find.text(RollWorkerHomeScreen.registerRoll), findsNothing);
+      expect(find.text('لا يوجد رول مركب حالياً'), findsNothing);
     },
   );
 
@@ -146,6 +165,7 @@ void main() {
     (WidgetTester tester) async {
       final summaryRepo = _MockSummaryRepo();
       final authRepo = _MockAuthRepo();
+      _useTallSurface(tester);
       when(
         () => summaryRepo.fetchSummary(shiftLineId: kShiftLineId),
       ).thenAnswer((_) async => SummarySuccess(_summary()));
@@ -156,7 +176,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(TakeoverStrings.noActiveOperator), findsNothing);
-      expect(find.text(RollWorkerHomeScreen.scanRoll), findsOneWidget);
+      expect(find.text(RollWorkerHomeScreen.registerRoll), findsOneWidget);
     },
   );
 
@@ -166,6 +186,7 @@ void main() {
     (WidgetTester tester) async {
       final summaryRepo = _MockSummaryRepo();
       final authRepo = _MockAuthRepo();
+      _useTallSurface(tester);
       // First fetch: line is waiting. Second fetch (the adaptive refresh):
       // a thermoforming operator now owns the line.
       int calls = 0;
@@ -185,7 +206,7 @@ void main() {
 
       // Waiting card is shown, roll work is suppressed.
       expect(find.text(TakeoverStrings.noActiveOperator), findsOneWidget);
-      expect(find.text(RollWorkerHomeScreen.scanRoll), findsNothing);
+      expect(find.text(RollWorkerHomeScreen.registerRoll), findsNothing);
 
       // The next REST summary (e.g. driven by an SSE LINE_STATE_CHANGED) says
       // an operator is active — the UI must converge from REST alone.
@@ -198,7 +219,69 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(TakeoverStrings.noActiveOperator), findsNothing);
-      expect(find.text(RollWorkerHomeScreen.scanRoll), findsOneWidget);
+      expect(find.text(RollWorkerHomeScreen.registerRoll), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'pull-to-refresh re-fetches the line summary',
+    (WidgetTester tester) async {
+      _useTallSurface(tester);
+      final summaryRepo = _MockSummaryRepo();
+      final authRepo = _MockAuthRepo();
+      int calls = 0;
+      when(() => summaryRepo.fetchSummary(shiftLineId: kShiftLineId))
+          .thenAnswer((_) async {
+        calls++;
+        return SummarySuccess(_summary());
+      });
+
+      await tester.pumpWidget(
+        _wrap(summaryRepo: summaryRepo, authRepo: authRepo),
+      );
+      await tester.pumpAndSettle();
+      expect(calls, 1); // initial load
+
+      // Trigger the pull-to-refresh programmatically (deterministic — a fling
+      // gesture is flaky against short content). This invokes the same
+      // onRefresh wiring a real pull does.
+      final RefreshIndicatorState refresh = tester
+          .state<RefreshIndicatorState>(find.byType(RefreshIndicator));
+      unawaited(refresh.show());
+      await tester.pumpAndSettle();
+
+      // The pull triggered another summary fetch.
+      expect(calls, greaterThanOrEqualTo(2));
+    },
+  );
+
+  testWidgets(
+    'pull-to-refresh failure surfaces the failure snackbar',
+    (WidgetTester tester) async {
+      _useTallSurface(tester);
+      final summaryRepo = _MockSummaryRepo();
+      final authRepo = _MockAuthRepo();
+      int calls = 0;
+      when(() => summaryRepo.fetchSummary(shiftLineId: kShiftLineId))
+          .thenAnswer((_) async {
+        calls++;
+        // First load succeeds (data on screen); the pull refresh fails.
+        if (calls == 1) return SummarySuccess(_summary());
+        return const SummaryFailure(NetworkFailure());
+      });
+
+      await tester.pumpWidget(
+        _wrap(summaryRepo: summaryRepo, authRepo: authRepo),
+      );
+      await tester.pumpAndSettle();
+
+      final RefreshIndicatorState refresh = tester
+          .state<RefreshIndicatorState>(find.byType(RefreshIndicator));
+      unawaited(refresh.show());
+      await tester.pumpAndSettle();
+
+      // Data is kept (no error screen) but the failure is surfaced.
+      expect(find.text(RollWorkerHomeScreen.refreshFailed), findsOneWidget);
     },
   );
 }

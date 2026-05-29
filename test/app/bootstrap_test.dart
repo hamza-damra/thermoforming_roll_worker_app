@@ -73,7 +73,7 @@ List<Override> _pickerOverrides() {
   ];
 }
 
-const AppConfig _testConfig = AppConfig(
+final AppConfig _testConfig = AppConfig(
   apiBaseUrl: 'https://test.local',
   deviceKey: 'k',
 );
@@ -175,7 +175,7 @@ void main() {
   );
 
   testWidgets(
-    'cold start with two active sessions → renders NavigationBar with two tabs',
+    'cold start with two active sessions → renders a TabBar with two machine tabs',
     (WidgetTester tester) async {
       await tester.pumpWidget(
         ProviderScope(
@@ -198,14 +198,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // New shell (handoff §8 items 6-7): synced PageView + BottomNavigationBar.
-      expect(find.byType(BottomNavigationBar), findsOneWidget);
-      expect(find.byType(PageView), findsOneWidget);
-      // Two tabs → two destinations on the nav.
-      final BottomNavigationBar nav = tester.widget<BottomNavigationBar>(
-        find.byType(BottomNavigationBar),
-      );
-      expect(nav.items.length, 2);
+      // Unified shell: all active machines are top tabs (no bottom nav).
+      expect(find.byType(BottomNavigationBar), findsNothing);
+      expect(find.byType(TabBar), findsOneWidget);
+      final TabBar tabBar = tester.widget<TabBar>(find.byType(TabBar));
+      expect(tabBar.tabs.length, 2);
     },
   );
 

@@ -19,9 +19,18 @@ import '../widgets/qr_scanner_view.dart';
 /// Full-screen scan/mount flow. Camera-first; falls back to manual entry
 /// per requirements §9.
 class ScanRollScreen extends ConsumerStatefulWidget {
-  const ScanRollScreen({super.key, required this.shiftLineId});
+  const ScanRollScreen({
+    super.key,
+    required this.shiftLineId,
+    this.accentColor,
+  });
 
   final int shiftLineId;
+
+  /// Active line accent forwarded from the home screen so the scan screen's
+  /// app bar, manual-entry dialog and curing dialogs follow the same line
+  /// color. Falls back to the brand primary when null.
+  final Color? accentColor;
 
   static const String title = 'تركيب رول';
   static const String scanQr = 'مسح QR';
@@ -46,7 +55,10 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
   }
 
   Future<void> _openManualInput() async {
-    final String? code = await showManualRollInputDialog(context);
+    final String? code = await showManualRollInputDialog(
+      context,
+      accent: widget.accentColor,
+    );
     if (code == null || !mounted) return;
     await ref
         .read(rollScanControllerProvider(widget.shiftLineId).notifier)
@@ -62,7 +74,11 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
   Future<void> _handleMounted(RollScanMounted next) async {
     final RollScanWarning? maxWarning = _firstCuringMaxWarning(next.warnings);
     if (maxWarning != null) {
-      await showCuringMaxWarningDialog(context, warning: maxWarning);
+      await showCuringMaxWarningDialog(
+        context,
+        warning: maxWarning,
+        accent: widget.accentColor,
+      );
       if (!mounted) return;
     } else {
       ScaffoldMessenger.maybeOf(context)
@@ -81,7 +97,11 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
       // Re-arm the camera under the dialog so the worker can scan a
       // different roll after acknowledging.
       _resetScanner();
-      await showCuringMinViolationDialog(context, failure: failure);
+      await showCuringMinViolationDialog(
+        context,
+        failure: failure,
+        accent: widget.accentColor,
+      );
       return;
     }
     // Default failure path: inline error + re-open camera for retry.
@@ -119,7 +139,7 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text(ScanRollScreen.title),
-        backgroundColor: AppColors.primary,
+        backgroundColor: widget.accentColor ?? AppColors.primary,
         foregroundColor: AppColors.textOnPrimary,
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
@@ -153,6 +173,7 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
             child: AppSecondaryButton(
               label: ScanRollScreen.manualEntry,
               icon: Icons.keyboard_rounded,
+              color: widget.accentColor,
               onPressed: scanState is RollScanSubmitting
                   ? null
                   : _openManualInput,

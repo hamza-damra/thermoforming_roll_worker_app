@@ -16,6 +16,7 @@ class RemainingWeightField extends StatelessWidget {
     this.enabled = true,
     this.errorText,
     this.onChanged,
+    this.accent,
   });
 
   final TextEditingController controller;
@@ -24,8 +25,13 @@ class RemainingWeightField extends StatelessWidget {
   final String? errorText;
   final ValueChanged<String>? onChanged;
 
+  /// Active line accent for the scale icon + focused border. Falls back to
+  /// the brand primary.
+  final Color? accent;
+
   @override
   Widget build(BuildContext context) {
+    final Color color = accent ?? AppColors.primary;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -50,9 +56,10 @@ class RemainingWeightField extends StatelessWidget {
             hintText: hint,
             suffixText: 'كغ',
             errorText: errorText,
-            prefixIcon: const Icon(
-              Icons.scale_rounded,
-              color: AppColors.primary,
+            prefixIcon: Icon(Icons.scale_rounded, color: color),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: color, width: 1.5),
             ),
           ),
           onChanged: onChanged,

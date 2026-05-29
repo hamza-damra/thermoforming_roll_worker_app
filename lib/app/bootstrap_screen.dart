@@ -4,20 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/diagnostics/refresh_log.dart';
-import '../core/theme/app_colors.dart';
-import '../core/widgets/app_scaffold.dart';
-import '../features/home/presentation/screens/multi_line_home_shell.dart';
+import '../features/home/presentation/screens/machine_dashboard_shell.dart';
+import '../features/home/presentation/widgets/home_shimmer_skeleton.dart';
 import '../features/roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../features/roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
 import '../features/sessions_me/presentation/controllers/sessions_me_controller.dart';
 import '../features/sessions_me/presentation/controllers/sse_lifecycle_controller.dart';
 import '../features/shift_line/presentation/controllers/roll_worker_bootstrap_controller.dart';
-import '../features/shift_line/presentation/screens/active_shift_line_picker_screen.dart';
 
 /// Top-level state-driven entry point. Decides between:
 ///   - [_CheckingScaffold] while the registry is restoring from storage,
-///   - [ActiveShiftLinePickerScreen] when no active sessions exist,
-///   - [MultiLineHomeShell] when one or more active sessions exist.
+///   - [MachineDashboardShell] otherwise (it is the single surface for every
+///     post-restore state — it lists all `/bootstrap` machines as tabs and
+///     draws the per-line PIN overlay in place; there is no separate picker).
 ///
 /// Cross-cutting concerns:
 ///   - Fires the cascade snackbar only when the lost shift-line was the
@@ -128,10 +127,16 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
       multiLineSessionRegistryProvider,
     );
 
+    // After cold-start restore, the unified [MachineDashboardShell] is the
+    // single surface for every state: it shows all `/bootstrap` machines as
+    // tabs and renders the blocking PIN overlay in place for any machine
+    // without an active session — there is no separate picker / login screen.
     return switch (state) {
-      RegistryRestoring() => const _CheckingScaffold(),
-      RegistryEmpty() => const ActiveShiftLinePickerScreen(),
-      RegistryActive() => const MultiLineHomeShell(),
+      // Cold-start restore → full dashboard shimmer skeleton (replaces the old
+      // green-app-bar spinner). Once restored, the shell owns every state.
+      RegistryRestoring() => const RollWorkerLoadingScaffold(),
+      RegistryEmpty() => const MachineDashboardShell(),
+      RegistryActive() => const MachineDashboardShell(),
     };
   }
 
@@ -177,21 +182,5 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
       }
     }
     return false;
-  }
-}
-
-class _CheckingScaffold extends StatelessWidget {
-  const _CheckingScaffold();
-
-  @override
-  Widget build(BuildContext context) {
-    return const AppScaffold(
-      title: 'تطبيق عامل الرولات',
-      body: Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-        ),
-      ),
-    );
   }
 }

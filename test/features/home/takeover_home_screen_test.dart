@@ -76,6 +76,15 @@ Widget _wrap({
   );
 }
 
+void _useTallSurface(WidgetTester tester) {
+  // The blocked/waiting card now sits below the operator/employee/product/
+  // allowed-rolls cards (redesign), so give the ListView a tall viewport.
+  tester.view.physicalSize = const Size(1200, 4000);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
 void main() {
   testWidgets(
     'PENDING takeover plays the alert and shows the blocking dialog '
@@ -148,6 +157,7 @@ void main() {
 
   testWidgets('auto-released takeover blocks roll work (no scan button)',
       (WidgetTester tester) async {
+    _useTallSurface(tester);
     final summaryRepo = _MockSummaryRepo();
     final authRepo = _MockAuthRepo();
     final alert = _FakeTakeoverAlertService();
@@ -165,11 +175,12 @@ void main() {
     expect(find.text(TakeoverStrings.blockedWork), findsOneWidget);
     expect(find.text(TakeoverStrings.autoReleasedBanner), findsOneWidget);
     // Scan affordance is hidden while work is blocked.
-    expect(find.text(RollWorkerHomeScreen.scanRoll), findsNothing);
+    expect(find.text(RollWorkerHomeScreen.registerRoll), findsNothing);
   });
 
   testWidgets('backend blocked=true shows the blocked card with its reason',
       (WidgetTester tester) async {
+    _useTallSurface(tester);
     final summaryRepo = _MockSummaryRepo();
     final authRepo = _MockAuthRepo();
     final alert = _FakeTakeoverAlertService();
@@ -185,7 +196,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('الخط في وضع تسليم'), findsOneWidget);
-    expect(find.text(RollWorkerHomeScreen.scanRoll), findsNothing);
+    expect(find.text(RollWorkerHomeScreen.registerRoll), findsNothing);
   });
 
   testWidgets('REJECTED takeover clears the banner and restores roll work',
@@ -203,7 +214,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(TakeoverStrings.body), findsNothing);
-    expect(find.text(RollWorkerHomeScreen.scanRoll), findsOneWidget);
+    expect(find.text(RollWorkerHomeScreen.registerRoll), findsOneWidget);
   });
 
   testWidgets('alert is not replayed when the summary refreshes for the '

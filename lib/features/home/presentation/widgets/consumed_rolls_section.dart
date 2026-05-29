@@ -22,6 +22,7 @@ class ConsumedRollsSection extends StatelessWidget {
     super.key,
     required this.rolls,
     this.onReprint,
+    this.accent,
   });
 
   final List<ConsumedRoll> rolls;
@@ -29,6 +30,10 @@ class ConsumedRollsSection extends StatelessWidget {
   /// Wired by the home screen to fire the existing label-reprint pipeline.
   /// Null disables reprint entirely (e.g., for tests/preview surfaces).
   final ValueChanged<String>? onReprint;
+
+  /// Active line accent — tints the roll icon, the consumed-weight badge and
+  /// the reprint affordances. Falls back to the brand primary.
+  final Color? accent;
 
   static const String heading = 'الرولات المستهلكة في هذه الجلسة';
   static const String emptyState = 'لا توجد رولات مستهلكة في هذه الجلسة';
@@ -68,6 +73,7 @@ class ConsumedRollsSection extends StatelessWidget {
             _ConsumedRollCard(
               roll: rolls[i],
               onReprint: onReprint,
+              accent: accent,
             ),
             if (i < rolls.length - 1) const SizedBox(height: 8),
           ],
@@ -77,10 +83,11 @@ class ConsumedRollsSection extends StatelessWidget {
 }
 
 class _ConsumedRollCard extends StatefulWidget {
-  const _ConsumedRollCard({required this.roll, this.onReprint});
+  const _ConsumedRollCard({required this.roll, this.onReprint, this.accent});
 
   final ConsumedRoll roll;
   final ValueChanged<String>? onReprint;
+  final Color? accent;
 
   @override
   State<_ConsumedRollCard> createState() => _ConsumedRollCardState();
@@ -141,39 +148,135 @@ class _ConsumedRollCardState extends State<_ConsumedRollCard> {
   @override
   Widget build(BuildContext context) {
     final ConsumedRoll roll = widget.roll;
-    final String typeLine = roll.rollTypeName.isNotEmpty
+    final Color accent = widget.accent ?? AppColors.primary;
+    final String? typeLine = roll.rollTypeName.trim().isNotEmpty
         ? '${roll.rollTypeCode} • ${roll.rollTypeName}'
-        : roll.rollTypeCode;
+        : (roll.rollTypeCode.trim().isNotEmpty ? roll.rollTypeCode : null);
 
     return AppCard(
+      padding: EdgeInsets.zero,
       child: InkWell(
         onTap: _toggle,
         borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.all(2),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              _Header(
-                typeLine: typeLine,
-                generatedRollId: roll.generatedRollId,
-                endedAtDisplay: roll.endedAtDisplay,
-                expanded: _expanded,
+              // Header: roll icon + serial (prominent) / type (secondary) +
+              // optional reprint icon + expand chevron. The date moved to its
+              // own line below so the serial/type never get squeezed/clipped.
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Icon(
+                      Icons.archive_outlined,
+                      size: 19,
+                      color: accent,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          roll.generatedRollId,
+                          style: AppTextStyles.h3.copyWith(
+                            fontSize: 15,
+                            letterSpacing: 0.5,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (typeLine != null) ...<Widget>[
+                          const SizedBox(height: 2),
+                          Text(
+                            typeLine,
+                            style: AppTextStyles.caption.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (_canReprint && !_expanded) ...<Widget>[
+                    const SizedBox(width: 8),
+                    _ReprintIconButton(accent: accent, onTap: _fireReprint),
+                  ],
+                  const SizedBox(width: 2),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 22,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              _CompactRow(
-                consumedKg: _kg(roll.consumedWeightKg),
-                closedReason: closedReasonLabel(roll.closedReason),
-                showReprintIcon: _canReprint && !_expanded,
-                onReprintIconTap: _fireReprint,
+              const SizedBox(height: 10),
+              // Badges wrap to a second line on small screens — never overflow.
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  _Pill(
+                    icon: Icons.local_fire_department_outlined,
+                    text: _kg(roll.consumedWeightKg),
+                    accent: accent,
+                  ),
+                  _Pill(
+                    icon: Icons.flag_outlined,
+                    text: closedReasonLabel(roll.closedReason),
+                    accent: accent,
+                    muted: true,
+                  ),
+                ],
               ),
+              if (roll.endedAtDisplay.trim().isNotEmpty) ...<Widget>[
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    const Icon(
+                      Icons.schedule_rounded,
+                      size: 14,
+                      color: AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        roll.endedAtDisplay,
+                        style: AppTextStyles.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               AnimatedSize(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeInOut,
+                alignment: Alignment.topCenter,
                 child: _expanded
                     ? _ExpandedBody(
                         roll: roll,
                         kg: _kg,
+                        accent: accent,
                         closedReason: closedReasonLabel(roll.closedReason),
                         remainderAction: remainderActionLabel(roll.remainderAction),
                         showReprintButton: _canReprint,
@@ -189,161 +292,65 @@ class _ConsumedRollCardState extends State<_ConsumedRollCard> {
   }
 }
 
-class _Header extends StatelessWidget {
-  const _Header({
-    required this.typeLine,
-    required this.generatedRollId,
-    required this.endedAtDisplay,
-    required this.expanded,
-  });
+/// Small accent-tinted reprint icon button shown on collapsed cards.
+class _ReprintIconButton extends StatelessWidget {
+  const _ReprintIconButton({required this.accent, required this.onTap});
 
-  final String typeLine;
-  final String generatedRollId;
-  final String endedAtDisplay;
-  final bool expanded;
+  final Color accent;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Container(
-          width: 32,
-          height: 32,
-          decoration: const BoxDecoration(
-            color: AppColors.primaryLight,
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.archive_outlined,
-            size: 18,
-            color: AppColors.primary,
-          ),
+    return InkResponse(
+      onTap: onTap,
+      radius: 22,
+      child: Container(
+        padding: const EdgeInsets.all(7),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(9),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                typeLine,
-                style: AppTextStyles.h3.copyWith(fontSize: 15),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                generatedRollId,
-                style: AppTextStyles.label.copyWith(fontSize: 12),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          endedAtDisplay,
-          style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
-        ),
-        const SizedBox(width: 4),
-        AnimatedRotation(
-          turns: expanded ? 0.5 : 0,
-          duration: const Duration(milliseconds: 180),
-          child: const Icon(
-            Icons.keyboard_arrow_down_rounded,
-            size: 20,
-            color: AppColors.textSecondary,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CompactRow extends StatelessWidget {
-  const _CompactRow({
-    required this.consumedKg,
-    required this.closedReason,
-    required this.showReprintIcon,
-    required this.onReprintIconTap,
-  });
-
-  final String consumedKg;
-  final String closedReason;
-  final bool showReprintIcon;
-  final VoidCallback onReprintIconTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        _Pill(
-          icon: Icons.local_fire_department_outlined,
-          text: consumedKg,
-        ),
-        const SizedBox(width: 8),
-        Flexible(
-          child: _Pill(
-            icon: Icons.flag_outlined,
-            text: closedReason,
-            muted: true,
-          ),
-        ),
-        if (showReprintIcon) ...<Widget>[
-          const Spacer(),
-          InkResponse(
-            onTap: onReprintIconTap,
-            radius: 22,
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.print_outlined,
-                size: 18,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-        ],
-      ],
+        child: Icon(Icons.print_outlined, size: 18, color: accent),
+      ),
     );
   }
 }
 
 class _Pill extends StatelessWidget {
-  const _Pill({required this.icon, required this.text, this.muted = false});
+  const _Pill({
+    required this.icon,
+    required this.text,
+    required this.accent,
+    this.muted = false,
+  });
 
   final IconData icon;
   final String text;
+  final Color accent;
   final bool muted;
 
   @override
   Widget build(BuildContext context) {
-    final Color fg = muted ? AppColors.textSecondary : AppColors.primaryDark;
-    final Color bg = muted ? AppColors.surfaceMuted : AppColors.primaryLight;
+    final Color fg = muted ? AppColors.textSecondary : accent;
+    final Color bg =
+        muted ? AppColors.surfaceMuted : accent.withValues(alpha: 0.12);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(9),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Icon(icon, size: 14, color: fg),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              text,
-              style: AppTextStyles.label.copyWith(color: fg, fontSize: 12),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              softWrap: false,
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: AppTextStyles.label.copyWith(
+              color: fg,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -356,6 +363,7 @@ class _ExpandedBody extends StatelessWidget {
   const _ExpandedBody({
     required this.roll,
     required this.kg,
+    required this.accent,
     required this.closedReason,
     required this.remainderAction,
     required this.showReprintButton,
@@ -364,6 +372,7 @@ class _ExpandedBody extends StatelessWidget {
 
   final ConsumedRoll roll;
   final String Function(double) kg;
+  final Color accent;
   final String closedReason;
   final String remainderAction;
   final bool showReprintButton;
@@ -409,6 +418,7 @@ class _ExpandedBody extends StatelessWidget {
           AppPrimaryButton(
             label: _reprintLabel,
             icon: Icons.print_rounded,
+            color: accent,
             onPressed: onReprintTap,
           ),
         ],

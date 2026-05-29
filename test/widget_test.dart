@@ -14,7 +14,7 @@ void main() {
         ProviderScope(
           overrides: <Override>[
             appConfigProvider.overrideWithValue(
-              const AppConfig(
+              AppConfig(
                 apiBaseUrl: 'https://test.local',
                 deviceKey: 'test-device-key',
               ),
@@ -28,7 +28,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(find.text('تطبيق عامل الرولات'), findsWidgets);
+      expect(find.text('تطبيق موظف الرولات'), findsWidgets);
 
       final BuildContext context = tester.element(find.byType(Scaffold).first);
       expect(Directionality.of(context), TextDirection.rtl);
@@ -42,7 +42,7 @@ void main() {
         ProviderScope(
           overrides: <Override>[
             appConfigProvider.overrideWithValue(
-              const AppConfig(apiBaseUrl: '', deviceKey: ''),
+              AppConfig(apiBaseUrl: '', deviceKey: ''),
             ),
           ],
           child: const RollWorkerApp(),

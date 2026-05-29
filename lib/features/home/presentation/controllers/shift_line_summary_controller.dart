@@ -23,6 +23,13 @@ class ShiftLineSummaryController
   ShiftLineSummaryRepository get _repo =>
       ref.read(shiftLineSummaryRepositoryProvider);
 
+  /// Whether the most recent fetch failed. Stays `true` even when prior data
+  /// is kept visible (a background/pull refresh that could not reach the
+  /// backend keeps the last good [SummaryLoaded]), so pull-to-refresh can
+  /// surface a failure snackbar without the controller having to throw.
+  bool _lastRefreshFailed = false;
+  bool get lastRefreshFailed => _lastRefreshFailed;
+
   /// Full load for first paint. Transitions through [SummaryLoading].
   Future<void> load() async {
     state = const SummaryLoading();
@@ -61,6 +68,7 @@ class ShiftLineSummaryController
     );
     switch (result) {
       case SummarySuccess(:final summary):
+        _lastRefreshFailed = false;
         state = SummaryLoaded(
           _mergeRestWithSseOverlays(summary),
           isRefreshing: false,
@@ -81,6 +89,7 @@ class ShiftLineSummaryController
   }
 
   Future<void> _onFailure(AppFailure failure) async {
+    _lastRefreshFailed = true;
     final ShiftLineSummaryState current = state;
     if (current is SummaryLoaded) {
       // Drop the refreshing flag; keep showing last good data.

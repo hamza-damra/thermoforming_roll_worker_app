@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_card.dart';
+import '../../../../core/widgets/session_stat_tile.dart';
 
 /// Summary card showing the session-scoped completed-roll count.
 ///
@@ -18,58 +18,39 @@ class SummaryCard extends StatelessWidget {
     required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
     this.isRefreshing = false,
+    this.accent,
   });
 
   final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
   final bool isRefreshing;
+  final Color? accent;
+
+  static const String label = 'الرولات المنجزة في هذه الجلسة';
 
   @override
   Widget build(BuildContext context) {
+    final Color color = accent ?? AppColors.primary;
     final bool showByCurrentWorker =
         completedRollsByCurrentWorker > 0 &&
         completedRollsByCurrentWorker != completedRollsInSession;
     return AppCard(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('الرولات المنجزة في هذه الجلسة',
-                    style: AppTextStyles.metricLabel),
-                const SizedBox(height: 4),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      '$completedRollsInSession',
-                      style: AppTextStyles.metricValue,
-                    ),
-                    if (showByCurrentWorker) ...[
-                      const SizedBox(width: 10),
-                      Text(
-                        'منك: $completedRollsByCurrentWorker',
-                        style: AppTextStyles.caption.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-          if (isRefreshing)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-        ],
+      elevated: true,
+      accent: color,
+      borderRadius: 18,
+      child: SessionStatTile(
+        icon: Icons.local_shipping_rounded,
+        label: label,
+        value: '$completedRollsInSession',
+        subline: showByCurrentWorker ? 'منك: $completedRollsByCurrentWorker' : null,
+        accent: color,
+        trailing: isRefreshing
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : null,
       ),
     );
   }

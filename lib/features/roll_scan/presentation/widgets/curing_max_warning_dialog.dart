@@ -11,19 +11,24 @@ import '../../domain/entities/roll_scan_warning.dart';
 Future<void> showCuringMaxWarningDialog(
   BuildContext context, {
   required RollScanWarning warning,
+  Color? accent,
 }) {
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext context) =>
-        _CuringMaxWarningDialog(warning: warning),
+        _CuringMaxWarningDialog(warning: warning, accent: accent),
   );
 }
 
 class _CuringMaxWarningDialog extends StatelessWidget {
-  const _CuringMaxWarningDialog({required this.warning});
+  const _CuringMaxWarningDialog({required this.warning, this.accent});
 
   final RollScanWarning warning;
+
+  /// Active line accent for the acknowledge button (header icon stays the
+  /// semantic warning color).
+  final Color? accent;
 
   static const String _title = 'تنبيه — تجاوز الحضانة الأعلى';
   static const String _adminNote = 'تم إشعار الإدارة. يمكنك المتابعة في العمل.';
@@ -56,6 +61,7 @@ class _CuringMaxWarningDialog extends StatelessWidget {
         actions: [
           AppPrimaryButton(
             label: _continue,
+            color: accent,
             onPressed: () => Navigator.of(context).pop(),
           ),
         ],

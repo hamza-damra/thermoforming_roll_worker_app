@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:thermoforming_roll_worker/features/home/data/dto/shift_line_summary_response.dart';
+import 'package:thermoforming_roll_worker/features/home/domain/entities/allowed_roll.dart';
 import 'package:thermoforming_roll_worker/features/home/domain/entities/shift_line_summary.dart';
 
 Map<String, dynamic> _baseJson() => <String, dynamic>{
@@ -124,6 +125,166 @@ void main() {
           ShiftLineSummaryResponse.fromJson(json).toEntity();
 
       expect(entity.consumedRolls, isEmpty);
+    });
+  });
+
+  group('ShiftLineSummaryResponse allowedRolls', () {
+    test('a single allowed roll parses every field correctly', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['allowedRolls'] = <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 70,
+            'code': 'TP-1',
+            'name': 'Thin PP',
+            'colorName': 'White',
+            'thicknessStandardMm': 0.0300,
+            'displayName': 'TP-1 / Thin PP',
+            'preferred': true,
+            'active': true,
+          },
+        ];
+
+      final ShiftLineSummary entity =
+          ShiftLineSummaryResponse.fromJson(json).toEntity();
+
+      expect(entity.allowedRolls, hasLength(1));
+      final AllowedRoll roll = entity.allowedRolls.first;
+      expect(roll.id, 70);
+      expect(roll.code, 'TP-1');
+      expect(roll.name, 'Thin PP');
+      expect(roll.colorName, 'White');
+      expect(roll.thicknessStandardMm, 0.03);
+      expect(roll.displayName, 'TP-1 / Thin PP');
+      expect(roll.preferred, isTrue);
+      expect(roll.active, isTrue);
+      expect(roll.resolvedDisplayName, 'TP-1 / Thin PP');
+    });
+
+    test('multiple allowed rolls preserve backend order', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['allowedRolls'] = <Map<String, dynamic>>[
+          <String, dynamic>{'id': 70, 'displayName': 'A', 'preferred': true},
+          <String, dynamic>{'id': 71, 'displayName': 'B'},
+          <String, dynamic>{'id': 72, 'displayName': 'C'},
+        ];
+
+      final List<AllowedRoll> rolls =
+          ShiftLineSummaryResponse.fromJson(json).toEntity().allowedRolls;
+
+      expect(rolls.map((AllowedRoll r) => r.id).toList(), <int>[70, 71, 72]);
+      expect(rolls.map((AllowedRoll r) => r.displayName).toList(),
+          <String>['A', 'B', 'C']);
+    });
+
+    test('explicit empty allowedRolls list yields []', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['allowedRolls'] = <Map<String, dynamic>>[];
+
+      expect(
+        ShiftLineSummaryResponse.fromJson(json).toEntity().allowedRolls,
+        isEmpty,
+      );
+    });
+
+    test('absent / null / malformed allowedRolls tolerates older backends', () {
+      // Absent key.
+      expect(
+        ShiftLineSummaryResponse.fromJson(_baseJson()).toEntity().allowedRolls,
+        isEmpty,
+      );
+      // Explicit null.
+      expect(
+        ShiftLineSummaryResponse.fromJson(_baseJson()..['allowedRolls'] = null)
+            .toEntity()
+            .allowedRolls,
+        isEmpty,
+      );
+      // Malformed (non-list).
+      expect(
+        ShiftLineSummaryResponse.fromJson(
+          _baseJson()..['allowedRolls'] = 'not-a-list',
+        ).toEntity().allowedRolls,
+        isEmpty,
+      );
+    });
+
+    test('null optional fields do not crash and fall back for display', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['allowedRolls'] = <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 5,
+            'code': null,
+            'name': null,
+            'colorName': null,
+            'thicknessStandardMm': null,
+            'displayName': null,
+          },
+        ];
+
+      final AllowedRoll roll =
+          ShiftLineSummaryResponse.fromJson(json).toEntity().allowedRolls.first;
+
+      expect(roll.code, isNull);
+      expect(roll.name, isNull);
+      expect(roll.colorName, isNull);
+      expect(roll.thicknessStandardMm, isNull);
+      expect(roll.displayName, isNull);
+      // displayName → code → name → generic placeholder.
+      expect(roll.resolvedDisplayName, AllowedRoll.unknownLabel);
+    });
+
+    test('displayName falls back to code, then name', () {
+      final Map<String, dynamic> codeOnly = _baseJson()
+        ..['allowedRolls'] = <Map<String, dynamic>>[
+          <String, dynamic>{'id': 1, 'code': 'TP-9', 'name': 'Nine'},
+        ];
+      expect(
+        ShiftLineSummaryResponse.fromJson(codeOnly)
+            .toEntity()
+            .allowedRolls
+            .first
+            .resolvedDisplayName,
+        'TP-9',
+      );
+
+      final Map<String, dynamic> nameOnly = _baseJson()
+        ..['allowedRolls'] = <Map<String, dynamic>>[
+          <String, dynamic>{'id': 1, 'name': 'Only Name'},
+        ];
+      expect(
+        ShiftLineSummaryResponse.fromJson(nameOnly)
+            .toEntity()
+            .allowedRolls
+            .first
+            .resolvedDisplayName,
+        'Only Name',
+      );
+    });
+
+    test('preferred defaults to false when missing/null', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['allowedRolls'] = <Map<String, dynamic>>[
+          <String, dynamic>{'id': 1, 'displayName': 'X'},
+          <String, dynamic>{'id': 2, 'displayName': 'Y', 'preferred': null},
+        ];
+
+      final List<AllowedRoll> rolls =
+          ShiftLineSummaryResponse.fromJson(json).toEntity().allowedRolls;
+      expect(rolls[0].preferred, isFalse);
+      expect(rolls[1].preferred, isFalse);
+    });
+
+    test('active defaults to true unless backend explicitly says false', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['allowedRolls'] = <Map<String, dynamic>>[
+          <String, dynamic>{'id': 1, 'displayName': 'Default'},
+          <String, dynamic>{'id': 2, 'displayName': 'Off', 'active': false},
+        ];
+
+      final List<AllowedRoll> rolls =
+          ShiftLineSummaryResponse.fromJson(json).toEntity().allowedRolls;
+      expect(rolls[0].active, isTrue);
+      expect(rolls[1].active, isFalse);
     });
   });
 }

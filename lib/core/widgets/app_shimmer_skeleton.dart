@@ -14,11 +14,22 @@ class AppShimmerSkeleton {
 
   /// Wrap any child in the project's shimmer gradient. Prefer the smaller
   /// primitive widgets below for typical placeholder layouts.
-  static Widget wrap({required Widget child}) {
+  ///
+  /// [accent] tints the base color toward the active line color (orange /
+  /// green / blue …) so the skeleton matches the themed dashboard it stands
+  /// in for; `null` falls back to the neutral brand tint. The sweep runs
+  /// right-to-left to respect the app's RTL layout.
+  static Widget wrap({required Widget child, Color? accent}) {
     return Shimmer.fromColors(
-      baseColor: AppColors.primaryLight,
+      baseColor: accent == null
+          ? AppColors.primaryLight
+          : Color.alphaBlend(
+              accent.withValues(alpha: 0.16),
+              const Color(0xFFECECEC),
+            ),
       highlightColor: AppColors.surface,
       period: const Duration(milliseconds: 1400),
+      direction: ShimmerDirection.rtl,
       child: child,
     );
   }

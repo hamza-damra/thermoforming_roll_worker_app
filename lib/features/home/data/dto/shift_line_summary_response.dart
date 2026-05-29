@@ -1,3 +1,4 @@
+import '../../domain/entities/allowed_roll.dart';
 import '../../domain/entities/line_takeover.dart';
 import '../../domain/entities/shift_line_summary.dart';
 
@@ -138,6 +139,59 @@ class ConsumedRollResponse {
   );
 }
 
+/// One entry in the `allowedRolls` array returned by
+/// `/shift-lines/{shiftLineId}/summary`. All fields except `id` tolerate
+/// `null`/missing values; see [AllowedRoll] for the display fallbacks.
+class AllowedRollResponse {
+  const AllowedRollResponse({
+    required this.id,
+    this.code,
+    this.name,
+    this.colorName,
+    this.thicknessStandardMm,
+    this.displayName,
+    this.preferred = false,
+    this.active = true,
+  });
+
+  factory AllowedRollResponse.fromJson(Map<String, dynamic> json) {
+    return AllowedRollResponse(
+      id: ShiftLineSummaryResponse._asInt(json['id']) ?? 0,
+      code: ShiftLineSummaryResponse._asString(json['code']),
+      name: ShiftLineSummaryResponse._asString(json['name']),
+      colorName: ShiftLineSummaryResponse._asString(json['colorName']),
+      thicknessStandardMm: ShiftLineSummaryResponse._asNum(
+        json['thicknessStandardMm'],
+      ),
+      displayName: ShiftLineSummaryResponse._asString(json['displayName']),
+      // preferred missing/null -> false; active missing/null -> true unless
+      // the backend explicitly says false.
+      preferred: ShiftLineSummaryResponse._asBool(json['preferred']) ?? false,
+      active: ShiftLineSummaryResponse._asBool(json['active']) ?? true,
+    );
+  }
+
+  final int id;
+  final String? code;
+  final String? name;
+  final String? colorName;
+  final num? thicknessStandardMm;
+  final String? displayName;
+  final bool preferred;
+  final bool active;
+
+  AllowedRoll toEntity() => AllowedRoll(
+    id: id,
+    code: code,
+    name: name,
+    colorName: colorName,
+    thicknessStandardMm: thicknessStandardMm,
+    displayName: displayName,
+    preferred: preferred,
+    active: active,
+  );
+}
+
 class ShiftLineSummaryResponse {
   const ShiftLineSummaryResponse({
     required this.shiftLineId,
@@ -146,6 +200,7 @@ class ShiftLineSummaryResponse {
     required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
     this.consumedRolls = const <ConsumedRollResponse>[],
+    this.allowedRolls = const <AllowedRollResponse>[],
     this.mountedRoll,
     this.blocked = false,
     this.blockedReason,
@@ -168,6 +223,9 @@ class ShiftLineSummaryResponse {
       completedRollsByCurrentWorker:
           json['completedRollsByCurrentWorker'] as int,
       consumedRolls: _parseConsumedRolls(json['consumedRolls']),
+      // allowedRolls is additive: a missing/null/malformed value yields [] so
+      // older backends never crash the client (compat handled here, not in UI).
+      allowedRolls: _parseAllowedRolls(json['allowedRolls']),
       mountedRoll: mountedRollJson is Map<String, dynamic>
           ? SummaryMountedRollResponse.fromJson(mountedRollJson)
           : null,
@@ -193,6 +251,7 @@ class ShiftLineSummaryResponse {
   final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
   final List<ConsumedRollResponse> consumedRolls;
+  final List<AllowedRollResponse> allowedRolls;
   final SummaryMountedRollResponse? mountedRoll;
   final bool blocked;
   final String? blockedReason;
@@ -222,6 +281,7 @@ class ShiftLineSummaryResponse {
     completedRollsInSession: completedRollsInSession,
     completedRollsByCurrentWorker: completedRollsByCurrentWorker,
     consumedRolls: consumedRolls.map((e) => e.toEntity()).toList(),
+    allowedRolls: allowedRolls.map((e) => e.toEntity()).toList(),
     mountedRoll: mountedRoll?.toEntity(),
     activeProduct: _currentProduct,
     blocked: blocked,
@@ -240,6 +300,18 @@ class ShiftLineSummaryResponse {
     return <ConsumedRollResponse>[
       for (final Object? item in raw)
         if (item is Map<String, dynamic>) ConsumedRollResponse.fromJson(item),
+    ];
+  }
+
+  /// Parses the `allowedRolls` JSON array. Returns an empty list when the key
+  /// is missing, null, or malformed so older backends (and "no current
+  /// product" / "no configured rolls") never crash the client. Individual
+  /// items with partial data are tolerated by [AllowedRollResponse.fromJson].
+  static List<AllowedRollResponse> _parseAllowedRolls(Object? raw) {
+    if (raw is! List) return const <AllowedRollResponse>[];
+    return <AllowedRollResponse>[
+      for (final Object? item in raw)
+        if (item is Map<String, dynamic>) AllowedRollResponse.fromJson(item),
     ];
   }
 
@@ -284,6 +356,8 @@ class ShiftLineSummaryResponse {
   static bool? _asBool(Object? v) => v is bool ? v : null;
 
   static int? _asInt(Object? v) => v is num ? v.toInt() : null;
+
+  static num? _asNum(Object? v) => v is num ? v : null;
 
   static String? _asString(Object? v) =>
       v is String && v.isNotEmpty ? v : null;

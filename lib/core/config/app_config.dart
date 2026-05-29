@@ -87,8 +87,10 @@ class AppConfig {
           baseUrl = productionBaseUrl;
           break;
         case AppEnvironment.staging:
-        case AppEnvironment.debug:
           baseUrl = stagingBaseUrl;
+          break;
+        case AppEnvironment.debug:
+          baseUrl = debugBaseUrl;
           break;
       }
     }
@@ -112,6 +114,9 @@ class AppConfig {
 
   /// Staging backend root (self-signed TLS).
   static const String stagingBaseUrl = 'https://138.68.66.215';
+
+  /// Debug backend root (local DDNS, plain HTTP).
+  static const String debugBaseUrl = 'http://hamzadamra.ddns.net:8080';
 
   /// Shared testing device key. Safe to bake in: this key is the same
   /// value the device-key interceptor expects on the staging backend and

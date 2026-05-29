@@ -18,12 +18,16 @@ Future<void> showGrindingDialog(
   BuildContext context, {
   required int shiftLineId,
   double? maxAllowedKg,
+  Color? accent,
 }) {
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (BuildContext context) =>
-        _GrindingDialog(shiftLineId: shiftLineId, maxAllowedKg: maxAllowedKg),
+    builder: (BuildContext context) => _GrindingDialog(
+      shiftLineId: shiftLineId,
+      maxAllowedKg: maxAllowedKg,
+      accent: accent,
+    ),
   );
 }
 
@@ -31,10 +35,16 @@ class _GrindingDialog extends ConsumerStatefulWidget {
   const _GrindingDialog({
     required this.shiftLineId,
     this.maxAllowedKg,
+    this.accent,
   });
 
   final int shiftLineId;
   final double? maxAllowedKg;
+
+  /// Active line accent for the weight field + cancel button. The confirm
+  /// button intentionally stays on the warning color — grinding is the one
+  /// genuinely risky (non-reversible) close option.
+  final Color? accent;
 
   static const String title = 'تأكيد إرسال المتبقي للجرش';
   static const String body = 'هل تريد إرسال الوزن المتبقي للجرش؟';
@@ -121,6 +131,7 @@ class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
               maxAllowedKg: widget.maxAllowedKg,
               enabled: !resolving,
               errorText: _localError,
+              accent: widget.accent,
               onChanged: (_) {
                 if (_localError != null) {
                   setState(() => _localError = null);
@@ -140,6 +151,7 @@ class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
               Expanded(
                 child: AppSecondaryButton(
                   label: _GrindingDialog.cancel,
+                  color: widget.accent,
                   onPressed: resolving
                       ? null
                       : () => Navigator.of(context).pop(),

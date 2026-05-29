@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'allowed_roll.dart';
 import 'line_takeover.dart';
 
 /// Snapshot of a mounted roll as returned by the shift-line summary endpoint.
@@ -227,6 +228,7 @@ class ShiftLineSummary {
     required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
     this.consumedRolls = const <ConsumedRoll>[],
+    this.allowedRolls = const <AllowedRoll>[],
     this.mountedRoll,
     this.activeProduct,
     this.returnedRemainingRoll,
@@ -261,6 +263,13 @@ class ShiftLineSummary {
   /// by the backend. Always taken straight from the freshest REST response —
   /// never accumulated or cached across sessions.
   final List<ConsumedRoll> consumedRolls;
+
+  /// Roll types the backend marks as allowed for the line's current product,
+  /// in backend order (`preferred` first). Informational/display-only —
+  /// the backend still validates scan/mount server-side. Empty when there is
+  /// no current product, no configured allowed rolls, or the backend predates
+  /// this field.
+  final List<AllowedRoll> allowedRolls;
 
   /// Currently mounted roll, or `null` when nothing is mounted.
   final SummaryMountedRoll? mountedRoll;
@@ -312,6 +321,7 @@ class ShiftLineSummary {
     int? completedRollsInSession,
     int? completedRollsByCurrentWorker,
     List<ConsumedRoll>? consumedRolls,
+    List<AllowedRoll>? allowedRolls,
     SummaryMountedRoll? mountedRoll,
     SummaryActiveProduct? activeProduct,
     ReturnedRemainingRoll? returnedRemainingRoll,
@@ -341,6 +351,7 @@ class ShiftLineSummary {
       completedRollsByCurrentWorker:
           completedRollsByCurrentWorker ?? this.completedRollsByCurrentWorker,
       consumedRolls: consumedRolls ?? this.consumedRolls,
+      allowedRolls: allowedRolls ?? this.allowedRolls,
       mountedRoll: clearMountedRoll ? null : (mountedRoll ?? this.mountedRoll),
       activeProduct: clearActiveProduct
           ? null
@@ -376,6 +387,7 @@ class ShiftLineSummary {
         other.completedRollsInSession == completedRollsInSession &&
         other.completedRollsByCurrentWorker == completedRollsByCurrentWorker &&
         listEquals(other.consumedRolls, consumedRolls) &&
+        listEquals(other.allowedRolls, allowedRolls) &&
         other.mountedRoll == mountedRoll &&
         other.activeProduct == activeProduct &&
         other.returnedRemainingRoll == returnedRemainingRoll &&
@@ -396,6 +408,7 @@ class ShiftLineSummary {
     completedRollsInSession,
     completedRollsByCurrentWorker,
     Object.hashAll(consumedRolls),
+    Object.hashAll(allowedRolls),
     mountedRoll,
     activeProduct,
     returnedRemainingRoll,

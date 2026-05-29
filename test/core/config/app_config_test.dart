@@ -4,23 +4,23 @@ import 'package:thermoforming_roll_worker/core/config/app_config.dart';
 void main() {
   group('AppConfig', () {
     test('isMissing when both fields empty', () {
-      const config = AppConfig(apiBaseUrl: '', deviceKey: '');
+      final config = AppConfig(apiBaseUrl: '', deviceKey: '');
       expect(config.isMissing, isTrue);
       expect(config.isComplete, isFalse);
     });
 
     test('isMissing when API base url is empty', () {
-      const config = AppConfig(apiBaseUrl: '', deviceKey: 'k');
+      final config = AppConfig(apiBaseUrl: '', deviceKey: 'k');
       expect(config.isMissing, isTrue);
     });
 
     test('isMissing when device key is empty', () {
-      const config = AppConfig(apiBaseUrl: 'https://x', deviceKey: '');
+      final config = AppConfig(apiBaseUrl: 'https://x', deviceKey: '');
       expect(config.isMissing, isTrue);
     });
 
     test('isComplete when both fields present', () {
-      const config = AppConfig(
+      final config = AppConfig(
         apiBaseUrl: 'https://api.taleeb.ps',
         deviceKey: 'k',
       );
@@ -29,7 +29,7 @@ void main() {
     });
 
     test('toString never includes the device key', () {
-      const config = AppConfig(
+      final config = AppConfig(
         apiBaseUrl: 'https://api.taleeb.ps',
         deviceKey: 'super-secret-device-key-12345',
       );
