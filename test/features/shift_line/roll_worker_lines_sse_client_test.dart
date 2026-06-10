@@ -92,6 +92,65 @@ void main() {
     },
   );
 
+  test(
+    'maps a urgent-manager-announcement frame to PickerSseUrgentAnnouncement '
+    '(NOT a refresh trigger)',
+    () async {
+      final source = _ScriptedSource(<Stream<List<int>>>[
+        _frame(
+          'event: urgent-manager-announcement\n'
+          'data: {"eventType":"URGENT_MANAGER_ANNOUNCEMENT_CREATED",'
+          '"announcementId":123,"targetDomain":"THERMOFORMING",'
+          '"priority":"URGENT"}\n\n',
+        ),
+      ]);
+      addTearDown(source.dispose);
+      final client = RollWorkerLinesSseClient(
+        source: source,
+        initialBackoff: const Duration(milliseconds: 5),
+      );
+
+      final items = await _collect(client);
+
+      final nudges = items.whereType<PickerSseUrgentAnnouncement>().toList();
+      expect(nudges, hasLength(1));
+      expect(nudges.single.announcementId, 123);
+      expect(nudges.single.priority, 'URGENT');
+      // Critically: the additive event must NOT be misrouted as a bootstrap
+      // refresh trigger (handoff: existing refresh handling unchanged).
+      expect(items.whereType<PickerSseRefreshTriggered>(), isEmpty);
+    },
+  );
+
+  test(
+    'a refresh frame and an urgent frame on one stream route distinctly '
+    '(shift-end OPERATOR_SESSION_ENDED still triggers a refresh)',
+    () async {
+      final source = _ScriptedSource(<Stream<List<int>>>[
+        _frame(
+          // The shift-end signal reaches this app as an ordinary refresh
+          // trigger — it must still produce a refresh.
+          'event: roll-worker-lines-changed\n'
+          'data: {"type":"OPERATOR_SESSION_ENDED","eventId":"end1"}\n\n'
+          'event: urgent-manager-announcement\n'
+          'data: {"announcementId":9}\n\n',
+        ),
+      ]);
+      addTearDown(source.dispose);
+      final client = RollWorkerLinesSseClient(
+        source: source,
+        initialBackoff: const Duration(milliseconds: 5),
+      );
+
+      final items = await _collect(client);
+
+      final triggers = items.whereType<PickerSseRefreshTriggered>().toList();
+      expect(triggers, hasLength(1));
+      expect(triggers.single.type, 'OPERATOR_SESSION_ENDED');
+      expect(items.whereType<PickerSseUrgentAnnouncement>(), hasLength(1));
+    },
+  );
+
   test('ignores `:` heartbeat comment lines', () async {
     final source = _ScriptedSource(<Stream<List<int>>>[
       _frame(

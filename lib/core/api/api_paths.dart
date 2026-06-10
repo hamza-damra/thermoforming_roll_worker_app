@@ -39,6 +39,16 @@ class ApiPaths {
   /// below is retained for backward compatibility only.
   static const String sessionsStartBatch = '$_rollAppBase/sessions/start-batch';
 
+  /// `POST {base}/sessions/takeover-with-roll-declaration`.
+  /// Headers: X-Device-Key only (NO X-Session-Token — the incoming worker is
+  /// not authenticated yet; the PIN is in the body). Body:
+  /// `{ shiftLineId, incomingOperatorPin, action, currentWeightKg?,
+  /// clientRequestId }`. Idempotent on `clientRequestId`. Resolves an
+  /// abandoned mounted roll (crediting the previous worker) and claims the line
+  /// for the incoming worker.
+  static const String sessionsTakeoverWithRollDeclaration =
+      '$_rollAppBase/sessions/takeover-with-roll-declaration';
+
   /// `GET {base}/sessions/me`.
   /// Headers: X-Device-Key + X-Session-Token (any of the worker's tokens).
   /// Returns the worker's identity plus a per-line snapshot (mounted roll,
@@ -92,6 +102,15 @@ class ApiPaths {
   static String previousRollFullConsume(int shiftLineId) =>
       '$_rollAppBase/shift-lines/$shiftLineId/previous-roll/full-consume';
 
+  /// `POST {base}/shift-lines/{shiftLineId}/previous-roll/keep-mounted-handover`.
+  /// Body: `{ "remainingWeightKg": <num> }`. V104 keep-mounted handover: the
+  /// current worker declares the remaining weight (credited their consumed
+  /// interval), the roll stays mounted for the next worker, and **this call
+  /// ends the current worker's session** — do NOT call roll-worker-logout
+  /// afterwards.
+  static String previousRollKeepMountedHandover(int shiftLineId) =>
+      '$_rollAppBase/shift-lines/$shiftLineId/previous-roll/keep-mounted-handover';
+
   /// `POST {base}/shift-lines/{shiftLineId}/previous-roll/return`.
   /// Body: `{ "remainingWeightKg": <num> }`.
   static String previousRollReturn(int shiftLineId) =>
@@ -108,6 +127,32 @@ class ApiPaths {
   /// Looser session check (any active roll-worker session is accepted).
   static String reprintRollLabel(String generatedRollId) =>
       '$_rollAppBase/rolls/$generatedRollId/reprint-label';
+
+  // ─── Urgent manager announcements (sanitized) ───────────────────────────
+  //
+  // THERMOFORMING manager announcements surface to the Roll Worker app as a
+  // SANITIZED generic notice only — never the real body or sender. Both
+  // endpoints require X-Device-Key + X-Session-Token (any active roll-worker
+  // session token). The ack is idempotent and keyed server-side by the
+  // worker's operator id, so one ack dismisses the notice across every line
+  // session the worker holds. See
+  // `docs/ROLL_WORKER_URGENT_ANNOUNCEMENTS_AND_SHIFT_END_HANDOFF.md`.
+
+  /// `GET {base}/urgent-announcements/pending`.
+  /// Headers: X-Device-Key, X-Session-Token. Returns the active, not-expired,
+  /// not-yet-acked-by-this-worker announcements (oldest first) as a list of
+  /// sanitized DTOs — fixed generic `title`/`message`, no body/sender. This
+  /// is the authoritative source; the SSE nudge below is best-effort.
+  static const String urgentAnnouncementsPending =
+      '$_rollAppBase/urgent-announcements/pending';
+
+  /// `POST {base}/urgent-announcements/{id}/ack`.
+  /// Headers: X-Device-Key, X-Session-Token. Empty body. Backend forces
+  /// `acknowledgementType = GENERIC_NOTICE_ACK`, keyed by operator id.
+  /// Duplicate acks return success (idempotent); an unknown id →
+  /// `ROLL_ANNOUNCEMENT_NOT_FOUND`.
+  static String urgentAnnouncementAck(int id) =>
+      '$_rollAppBase/urgent-announcements/$id/ack';
 
   // ─── Operator-dashboard SSE (cross-app realtime sync) ────────────────────
   //

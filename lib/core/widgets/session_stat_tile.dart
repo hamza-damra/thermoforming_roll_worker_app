@@ -54,29 +54,27 @@ class SessionStatTile extends StatelessWidget {
             children: <Widget>[
               Text(label, style: AppTextStyles.metricLabel),
               const SizedBox(height: 4),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: <Widget>[
-                  Text(
-                    value,
-                    style: AppTextStyles.metricValue.copyWith(
-                      color: color,
-                      fontSize: 30,
-                    ),
-                  ),
-                  if (subline != null) ...<Widget>[
-                    const SizedBox(width: 10),
-                    Text(
-                      subline!,
-                      style: AppTextStyles.caption.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ],
+              // Value and subline are stacked (not a horizontal Row): a wide
+              // value (e.g. "142.5 كغ") plus a long subline (e.g.
+              // "ساهمت في: 3 رولات") would otherwise overflow the row,
+              // especially at larger accessibility text scales.
+              Text(
+                value,
+                style: AppTextStyles.metricValue.copyWith(
+                  color: color,
+                  fontSize: 30,
+                ),
               ),
+              if (subline != null) ...<Widget>[
+                const SizedBox(height: 2),
+                Text(
+                  subline!,
+                  style: AppTextStyles.caption.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

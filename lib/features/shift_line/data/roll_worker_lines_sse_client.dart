@@ -70,7 +70,31 @@ class RollWorkerLinesFrameParser {
 
   static const String handshakeName = 'connected';
 
+  /// Additive event (handoff §SSE nudge): a sanitized urgent-manager
+  /// announcement was created. Distinct from the refresh-trigger frames — it
+  /// must NOT be treated as a `/bootstrap` refresh.
+  static const String urgentAnnouncementName = 'urgent-manager-announcement';
+
   static bool isHandshake(RawSseEvent raw) => raw.name == handshakeName;
+
+  static bool isUrgentAnnouncement(RawSseEvent raw) =>
+      raw.name == urgentAnnouncementName;
+
+  /// Decodes the (sanitized) urgent-announcement nudge. The JSON body carries
+  /// only diagnostic fields (`announcementId`, `priority`) — never a body or
+  /// sender; the `/pending` endpoint remains authoritative.
+  static PickerSseUrgentAnnouncement parseUrgentAnnouncement(RawSseEvent raw) {
+    final Object? decoded = _safeJsonDecode(raw.data);
+    final Map<String, dynamic> map = decoded is Map<String, dynamic>
+        ? decoded
+        : const <String, dynamic>{};
+    return PickerSseUrgentAnnouncement(
+      announcementId: map['announcementId'] is num
+          ? (map['announcementId'] as num).toInt()
+          : null,
+      priority: map['priority'] is String ? map['priority'] as String : null,
+    );
+  }
 
   static PickerSseRefreshTriggered parseRefresh(RawSseEvent raw) {
     final Object? decoded = _safeJsonDecode(raw.data);
@@ -262,6 +286,13 @@ class _RollWorkerLinesSseSubscription {
               );
               _hasEverConnected = true;
             }
+            continue;
+          }
+          // Additive, distinct event — route to the announcement notifier and
+          // do NOT fall through to the refresh-trigger path (handoff: existing
+          // refresh handling stays unchanged).
+          if (RollWorkerLinesFrameParser.isUrgentAnnouncement(raw)) {
+            _emit(RollWorkerLinesFrameParser.parseUrgentAnnouncement(raw));
             continue;
           }
           final PickerSseRefreshTriggered trigger =

@@ -113,6 +113,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '40');
+    await tester.pumpAndSettle();
     await tester.tap(find.text('تأكيد الجرش'));
     await tester.pumpAndSettle();
 
@@ -122,6 +123,50 @@ void main() {
         remainingWeightKg: 40.0,
       ),
     ).called(1);
+  });
+
+  testWidgets('0 is invalid: confirm stays disabled + "استهلاك كامل" hint', (
+    WidgetTester tester,
+  ) async {
+    final navKey = GlobalKey<NavigatorState>();
+    final prev = _MockPrevRepo();
+    final scan = _MockScanRepo();
+    final auth = _MockAuthRepo();
+
+    await tester.pumpWidget(
+      _harness(navKey: navKey, prev: prev, scan: scan, auth: auth),
+    );
+    unawaited(
+      showGrindingDialog(
+        navKey.currentContext!,
+        shiftLineId: kShiftLineId,
+        maxAllowedKg: 250.0,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '0');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'يجب أن يكون الوزن المتبقي أكبر من 0 كغ. إذا انتهى الرول اختر استهلاك كامل.',
+      ),
+      findsOneWidget,
+    );
+    final ElevatedButton confirm = tester.widget<ElevatedButton>(
+      find.widgetWithText(ElevatedButton, 'تأكيد الجرش'),
+    );
+    expect(confirm.onPressed, isNull);
+
+    await tester.tap(find.text('تأكيد الجرش'));
+    await tester.pumpAndSettle();
+    verifyNever(
+      () => prev.sendToGrinding(
+        shiftLineId: any<int>(named: 'shiftLineId'),
+        remainingWeightKg: any<double>(named: 'remainingWeightKg'),
+      ),
+    );
   });
 }
 

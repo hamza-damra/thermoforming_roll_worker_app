@@ -7,18 +7,21 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/app_secondary_button.dart';
 import '../../../../core/widgets/inline_error.dart';
+import '../../domain/entities/previous_roll_resolution.dart';
 import '../controllers/previous_roll_resolution_controller.dart';
 import '../controllers/previous_roll_resolution_state.dart';
 
 /// Confirmation dialog for full-consume close. Submits via the controller
 /// and pops on resolved/failure-via-controller; the host stays open while
-/// resolving.
-Future<void> showFullConsumeConfirmDialog(
+/// resolving. Resolves to the [PreviousRollResolution] when the close
+/// succeeded (the logout flow uses it to sequence the logout), or `null` on
+/// cancel.
+Future<PreviousRollResolution?> showFullConsumeConfirmDialog(
   BuildContext context, {
   required int shiftLineId,
   Color? accent,
 }) {
-  return showDialog<void>(
+  return showDialog<PreviousRollResolution>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext context) =>
@@ -35,7 +38,7 @@ class _FullConsumeConfirmDialog extends ConsumerWidget {
   final Color? accent;
 
   static const String _title = 'تأكيد استهلاك كامل';
-  static const String _question = 'هل تريد إغلاق هذا الرول كاستهلاك كامل؟';
+  static const String _question = 'هل تريد إنزال هذا الرول كاستهلاك كامل؟';
   static const String _confirm = 'تأكيد الاستهلاك';
   static const String _cancel = 'إلغاء';
 
@@ -50,7 +53,9 @@ class _FullConsumeConfirmDialog extends ConsumerWidget {
     ref.listen<PreviousRollResolutionState>(
       previousRollResolutionControllerProvider(shiftLineId),
       (prev, next) {
-        if (next is PreviousRollResolved) Navigator.of(context).maybePop();
+        if (next is PreviousRollResolved) {
+          Navigator.of(context).pop(next.resolution);
+        }
       },
     );
 

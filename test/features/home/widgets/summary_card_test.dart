@@ -65,4 +65,41 @@ void main() {
 
     expect(find.textContaining('منك'), findsNothing);
   });
+
+  testWidgets(
+    'V104: leads with consumed-kg headline + rolls-contributed subline',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(const SummaryCard(
+          completedRollsInSession: 3,
+          completedRollsByCurrentWorker: 3,
+          consumedWeightKgInSession: 142.5,
+          rollsContributedInSession: 3,
+        )),
+      );
+
+      expect(find.text('المستهلك في هذه الجلسة'), findsOneWidget);
+      expect(find.text('142.5 كغ'), findsOneWidget);
+      expect(find.text('ساهمت في: 3 رولات'), findsOneWidget);
+      // The legacy completed-rolls heading is not shown when kg is present.
+      expect(find.text('الرولات المنجزة في هذه الجلسة'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'V104: falls back to completed-rolls headline when kg is null (legacy)',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(const SummaryCard(
+          completedRollsInSession: 7,
+          completedRollsByCurrentWorker: 0,
+          rollsContributedInSession: 0,
+        )),
+      );
+
+      expect(find.text('الرولات المنجزة في هذه الجلسة'), findsOneWidget);
+      expect(find.text('7'), findsOneWidget);
+      expect(find.textContaining('المستهلك'), findsNothing);
+    },
+  );
 }

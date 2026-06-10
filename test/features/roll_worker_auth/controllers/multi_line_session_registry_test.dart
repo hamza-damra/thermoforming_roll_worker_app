@@ -193,6 +193,91 @@ void main() {
         expect(state.lastEvent, isA<BatchAdded>());
       },
     );
+
+    test(
+      'additive: start-batch [81] while 82 is active keeps BOTH lines, '
+      'active pointer unchanged (handoff §4 / §6.1)',
+      () async {
+        final auth = _MockAuthRepo();
+        final raw = _MockIndexRaw();
+        when(
+          () => raw.read(key: any<String>(named: 'key')),
+        ).thenAnswer((_) async => null);
+        when(
+          () => raw.write(
+            key: any<String>(named: 'key'),
+            value: any<String>(named: 'value'),
+          ),
+        ).thenAnswer((_) async {});
+        final container = _container(
+          auth: auth,
+          index: SessionIndexStorage.withStorage(raw),
+        );
+        final notifier = container.read(
+          multiLineSessionRegistryProvider.notifier,
+        );
+
+        // Worker already active on 82.
+        await notifier.onBatchSuccess(<int, RollWorkerSession>{82: _session(82)});
+        expect(
+          (container.read(multiLineSessionRegistryProvider) as RegistryActive)
+              .activeShiftLineId,
+          82,
+        );
+
+        // Logs into 81 — must MERGE, never replace.
+        await notifier.onBatchSuccess(<int, RollWorkerSession>{81: _session(81)});
+
+        final state =
+            container.read(multiLineSessionRegistryProvider) as RegistryActive;
+        expect(state.sessions.keys.toSet(), <int>{81, 82});
+        expect(
+          state.activeShiftLineId,
+          82,
+          reason: 'merging a new line must not steal the active pointer',
+        );
+        expect(state.lastEvent, isA<BatchAdded>());
+      },
+    );
+  });
+
+  group('logout (per-line)', () {
+    test('logout 81 removes ONLY 81 and keeps 82 active', () async {
+      final auth = _MockAuthRepo();
+      final raw = _MockIndexRaw();
+      when(
+        () => raw.read(key: any<String>(named: 'key')),
+      ).thenAnswer((_) async => null);
+      when(
+        () => raw.write(
+          key: any<String>(named: 'key'),
+          value: any<String>(named: 'value'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => auth.logout(any<int>())).thenAnswer((_) async {});
+
+      final container = _container(
+        auth: auth,
+        index: SessionIndexStorage.withStorage(raw),
+      );
+      final notifier = container.read(
+        multiLineSessionRegistryProvider.notifier,
+      );
+
+      await notifier.onBatchSuccess(<int, RollWorkerSession>{
+        81: _session(81),
+        82: _session(82),
+      });
+      // 81 is the active pointer (first inserted key).
+      await notifier.logout(81);
+
+      final state =
+          container.read(multiLineSessionRegistryProvider) as RegistryActive;
+      expect(state.sessions.keys.toSet(), <int>{82});
+      expect(state.activeShiftLineId, 82);
+      verify(() => auth.logout(81)).called(1);
+      verifyNever(() => auth.logout(82));
+    });
   });
 
   group('notifySessionLost', () {

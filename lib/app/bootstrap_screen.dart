@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/diagnostics/refresh_log.dart';
+import '../core/theme/app_colors.dart';
 import '../features/home/presentation/screens/machine_dashboard_shell.dart';
 import '../features/home/presentation/widgets/home_shimmer_skeleton.dart';
 import '../features/roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
@@ -11,6 +12,9 @@ import '../features/roll_worker_auth/presentation/controllers/multi_line_session
 import '../features/sessions_me/presentation/controllers/sessions_me_controller.dart';
 import '../features/sessions_me/presentation/controllers/sse_lifecycle_controller.dart';
 import '../features/shift_line/presentation/controllers/roll_worker_bootstrap_controller.dart';
+import '../features/urgent_announcements/presentation/controllers/manager_announcement_controller.dart';
+import '../features/urgent_announcements/presentation/controllers/manager_announcement_state.dart';
+import '../features/urgent_announcements/presentation/widgets/manager_announcement_overlay.dart';
 
 /// Top-level state-driven entry point. Decides between:
 ///   - [_CheckingScaffold] while the registry is restoring from storage,
@@ -99,6 +103,11 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
       await ref
           .read(sessionsMeControllerProvider.notifier)
           .refresh(trigger: 'app-resume');
+      // Authoritative re-check of pending urgent notices on resume (the SSE
+      // nudge is best-effort and may have been missed while backgrounded).
+      await ref
+          .read(managerAnnouncementControllerProvider.notifier)
+          .fetchPending(trigger: 'app-resume');
     } finally {
       _resumeInFlight = false;
     }
@@ -131,13 +140,34 @@ class _BootstrapScreenState extends ConsumerState<BootstrapScreen>
     // single surface for every state: it shows all `/bootstrap` machines as
     // tabs and renders the blocking PIN overlay in place for any machine
     // without an active session — there is no separate picker / login screen.
-    return switch (state) {
+    final Widget shell = switch (state) {
       // Cold-start restore → full dashboard shimmer skeleton (replaces the old
       // green-app-bar spinner). Once restored, the shell owns every state.
-      RegistryRestoring() => const RollWorkerLoadingScaffold(),
+      RegistryRestoring(:final restoredIds) => RollWorkerLoadingScaffold(
+          accent: restoredIds.isNotEmpty
+              ? AppColors.accentForLine(thermoformingLineId: restoredIds.first)
+              : null,
+        ),
       RegistryEmpty() => const MachineDashboardShell(),
       RegistryActive() => const MachineDashboardShell(),
     };
+
+    // App-wide blocking urgent-manager notice. It sits above every machine
+    // tab because the ack is operator-scoped (one ack dismisses it across all
+    // of the worker's lines). Only appears while logged in — the controller
+    // fetches `/pending` only when the registry is active.
+    final bool hasUrgentNotice = ref.watch(
+      managerAnnouncementControllerProvider.select(
+        (ManagerAnnouncementState s) => s.hasPending,
+      ),
+    );
+    if (!hasUrgentNotice) return shell;
+    return Stack(
+      children: <Widget>[
+        shell,
+        const Positioned.fill(child: ManagerAnnouncementOverlay()),
+      ],
+    );
   }
 
   void _maybeShowCascadeSnackbar(

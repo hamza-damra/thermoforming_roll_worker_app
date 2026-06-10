@@ -90,7 +90,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('لا يمكن أن يكون الوزن المتبقي أكبر من وزن بداية الرول'),
+      find.text('لا يمكن أن يكون الوزن أكبر من آخر وزن معروف للرول.'),
       findsOneWidget,
     );
     verifyNever(
@@ -128,6 +128,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '75.5');
+    await tester.pumpAndSettle();
     await tester.tap(find.text('إرجاع المتبقي'));
     await tester.pumpAndSettle();
 
@@ -170,6 +171,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '75.5');
+    await tester.pumpAndSettle();
     await tester.tap(find.text('إرجاع المتبقي'));
     await tester.pumpAndSettle();
 
@@ -179,6 +181,50 @@ void main() {
         'الوزن المتبقي غير صالح. يجب أن يكون بين صفر ووزن الرول الحالي.',
       ),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('0 is invalid: confirm stays disabled and never dispatches', (
+    WidgetTester tester,
+  ) async {
+    final navKey = GlobalKey<NavigatorState>();
+    final prev = _MockPrevRepo();
+    final scan = _MockScanRepo();
+    final auth = _MockAuthRepo();
+
+    await tester.pumpWidget(
+      _harness(navKey: navKey, prev: prev, scan: scan, auth: auth),
+    );
+    unawaited(
+      showReturnRemainingDialog(
+        navKey.currentContext!,
+        shiftLineId: kShiftLineId,
+        maxAllowedKg: 250.0,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '0');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'يجب أن يكون الوزن المتبقي أكبر من 0 كغ. إذا انتهى الرول اختر استهلاك كامل.',
+      ),
+      findsOneWidget,
+    );
+    final ElevatedButton confirm = tester.widget<ElevatedButton>(
+      find.widgetWithText(ElevatedButton, 'إرجاع المتبقي'),
+    );
+    expect(confirm.onPressed, isNull);
+
+    await tester.tap(find.text('إرجاع المتبقي'));
+    await tester.pumpAndSettle();
+    verifyNever(
+      () => prev.returnRemaining(
+        shiftLineId: any<int>(named: 'shiftLineId'),
+        remainingWeightKg: any<double>(named: 'remainingWeightKg'),
+      ),
     );
   });
 }

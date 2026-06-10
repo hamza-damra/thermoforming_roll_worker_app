@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/directional_chevron.dart';
 
 /// The three exclusive close-flow choices.
 enum ClosePreviousRollAction { fullConsume, returnRemaining, sendToGrinding }
@@ -28,8 +29,8 @@ class _ClosePreviousRollDialog extends StatelessWidget {
   /// is the only genuinely risky option. Falls back to the brand primary.
   final Color? accent;
 
-  static const String _title = 'إغلاق الرول السابق';
-  static const String _detail = 'اختر طريقة إغلاق الرول الحالي';
+  static const String _title = 'إنزال الرول السابق';
+  static const String _detail = 'اختر طريقة إنزال الرول الحالي';
   static const String _fullConsume = 'استهلاك كامل';
   static const String _returnRemaining = 'إرجاع المتبقي';
   static const String _grinding = 'إرسال المتبقي للجرش';
@@ -135,10 +136,7 @@ class _ChoiceTile extends StatelessWidget {
                   ),
                 ),
               ),
-              const Icon(
-                Icons.chevron_left_rounded,
-                color: AppColors.textSecondary,
-              ),
+              const DirectionalChevron(),
             ],
           ),
         ),

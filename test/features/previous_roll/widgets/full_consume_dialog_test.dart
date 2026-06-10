@@ -79,13 +79,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('تأكيد استهلاك كامل'), findsOneWidget);
-    expect(find.text('هل تريد إغلاق هذا الرول كاستهلاك كامل؟'), findsOneWidget);
+    expect(find.text('هل تريد إنزال هذا الرول كاستهلاك كامل؟'), findsOneWidget);
     await tester.tap(find.text('تأكيد الاستهلاك'));
     await tester.pumpAndSettle();
 
     verify(() => prev.fullConsume(shiftLineId: kShiftLineId)).called(1);
     // Dialog should have popped after Resolved.
-    expect(find.text('هل تريد إغلاق هذا الرول كاستهلاك كامل؟'), findsNothing);
+    expect(find.text('هل تريد إنزال هذا الرول كاستهلاك كامل؟'), findsNothing);
   });
 }
 
