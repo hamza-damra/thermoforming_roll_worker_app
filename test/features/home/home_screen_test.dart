@@ -65,7 +65,7 @@ Widget _wrap({
 
 void main() {
   testWidgets(
-    'idle state: shows machine title, summary card, and fixed "تسجيل رول" CTA',
+    'idle state: shows machine title, summary card, and fixed "تركيب رول" CTA',
     (WidgetTester tester) async {
       _useTallSurface(tester);
       final summaryRepo = _MockSummaryRepo();
@@ -89,7 +89,7 @@ void main() {
       expect(find.text(RollWorkerHomeScreen.registerRoll), findsOneWidget);
       // Empty mounted-roll card (message + helper).
       expect(find.text('لا يوجد رول مركب حالياً'), findsOneWidget);
-      expect(find.text('اضغط تسجيل رول لتركيب رول جديد'), findsOneWidget);
+      expect(find.text('اضغط تركيب رول لبدء رول جديد'), findsOneWidget);
     },
   );
 
@@ -119,14 +119,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Compact mounted-roll card shows the serial only (roll type + current
-      // weight were intentionally removed).
+      // Compact mounted-roll card shows the serial plus the read-only latest
+      // known weight; the roll type stays hidden (identified by serial only).
       expect(find.textContaining('777000000001'), findsOneWidget);
       expect(find.text('الرول المركب حالياً'), findsOneWidget);
       expect(find.text('قيد الاستهلاك'), findsOneWidget);
-      // Roll type and current weight are no longer shown on the mounted card.
+      // Latest-known weight row is shown (read-only, 3 decimals + كغ).
+      expect(find.text('آخر وزن معروف'), findsOneWidget);
+      expect(find.text('250.000 كغ'), findsOneWidget);
+      // Roll type is still not shown on the mounted card.
       expect(find.textContaining('TP-1'), findsNothing);
-      expect(find.textContaining('250.0'), findsNothing);
       // Close-roll CTA is the fixed bottom action when a roll is mounted.
       expect(find.text(RollWorkerHomeScreen.closeCurrentRoll), findsOneWidget);
       expect(find.text('تغيير المنتج'), findsNothing);

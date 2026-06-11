@@ -14,6 +14,10 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
       'تم قفل الحساب لعدد كبير من المحاولات الخاطئة. يرجى مراجعة المشرف.',
   ErrorCode.operatorLocked:
       'تم قفل الحساب لعدد كبير من المحاولات الخاطئة. يرجى مراجعة المشرف.',
+  // V104 takeover. The UI opens the takeover screen on this code; this string
+  // is only an internal fallback if it ever surfaces as a plain message.
+  ErrorCode.rollWorkerTakeoverRequired:
+      'يوجد رول مركب لم يُغلق من الموظف السابق. يلزم استلام الخط.',
 
   // Multi-line batch session-start (handoff §7.3)
   ErrorCode.rollWorkerSessionBatchEmpty: 'يجب اختيار خط واحد على الأقل.',
@@ -67,6 +71,10 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
   // Reprint
   ErrorCode.rollLabelReprintNotAvailable:
       'إعادة طباعة ملصق الرول متاحة فقط بعد الإرجاع الجزئي أو إغلاق الجرش.',
+
+  // Urgent manager announcements (fallback only — the notice controller
+  // treats this code as already-acknowledged and dismisses the modal).
+  ErrorCode.rollAnnouncementNotFound: 'لم تعد هذه الملاحظة متاحة.',
 
   // Generic
   ErrorCode.validationError: 'حدث خطأ، حاول مرة أخرى.',

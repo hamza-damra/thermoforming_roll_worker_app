@@ -1,4 +1,5 @@
 import '../../../core/errors/app_failure.dart';
+import '../data/dto/roll_worker_handover_response.dart';
 import 'entities/previous_roll_resolution.dart';
 
 /// Outcome of a previous-roll close call. Repositories return one of these
@@ -14,6 +15,22 @@ class PreviousRollSuccess extends PreviousRollResult {
 
 class PreviousRollFailure extends PreviousRollResult {
   const PreviousRollFailure(this.failure);
+  final AppFailure failure;
+}
+
+/// Outcome of a keep-mounted handover call. On success the worker's session is
+/// already ended server-side and the local token has been cleared.
+sealed class KeepMountedResult {
+  const KeepMountedResult();
+}
+
+class KeepMountedSuccess extends KeepMountedResult {
+  const KeepMountedSuccess(this.response);
+  final RollWorkerHandoverResponse response;
+}
+
+class KeepMountedFailure extends KeepMountedResult {
+  const KeepMountedFailure(this.failure);
   final AppFailure failure;
 }
 
@@ -40,6 +57,16 @@ abstract class PreviousRollRepository {
   /// `{"remainingWeightKg": <num>}`. Same bounds as
   /// [returnRemaining].
   Future<PreviousRollResult> sendToGrinding({
+    required int shiftLineId,
+    required double remainingWeightKg,
+  });
+
+  /// `POST /shift-lines/{shiftLineId}/previous-roll/keep-mounted-handover` with
+  /// body `{"remainingWeightKg": <num>}`. Credits the current worker their
+  /// consumed interval, keeps the roll mounted for the next worker, and ENDS
+  /// this worker's session. On success the locally-stored session token is
+  /// cleared (it is now invalid). Same bounds as [returnRemaining].
+  Future<KeepMountedResult> keepMountedHandover({
     required int shiftLineId,
     required double remainingWeightKg,
   });

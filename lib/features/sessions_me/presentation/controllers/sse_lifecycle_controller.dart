@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/diagnostics/refresh_log.dart';
 import '../../../shift_line/data/roll_worker_lines_sse_providers.dart';
 import '../../../shift_line/domain/entities/roll_worker_lines_event.dart';
+import '../../../urgent_announcements/presentation/controllers/manager_announcement_controller.dart';
 import 'sessions_me_controller.dart';
 
 /// Owns the single global subscription to `RollWorkerLinesSseClient`
@@ -87,18 +88,27 @@ class SseLifecycleController extends Notifier<SseLifecycleStatus> {
     final SessionsMeController sessionsMe = ref.read(
       sessionsMeControllerProvider.notifier,
     );
+    final ManagerAnnouncementController announcements = ref.read(
+      managerAnnouncementControllerProvider.notifier,
+    );
     switch (item) {
       case PickerSseConnected():
         state = SseLifecycleStatus.connected;
         sessionsMe.notifySseConnected(isReconnect: false);
+        announcements.onSseConnected();
       case PickerSseReconnected():
         state = SseLifecycleStatus.connected;
         sessionsMe.notifySseConnected(isReconnect: true);
+        announcements.onSseConnected();
       case PickerSseTransportError():
         state = SseLifecycleStatus.disconnected;
         sessionsMe.notifySseDisconnected();
       case PickerSseRefreshTriggered():
         sessionsMe.notifyRefreshTrigger();
+      case PickerSseUrgentAnnouncement():
+        // Additive + distinct: nudge the announcement notifier only — the
+        // existing bootstrap/sessions refresh path is intentionally untouched.
+        announcements.onSseNudge();
     }
   }
 

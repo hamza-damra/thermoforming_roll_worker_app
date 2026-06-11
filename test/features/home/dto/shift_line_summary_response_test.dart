@@ -52,6 +52,26 @@ void main() {
       expect(dto.toEntity().completedRollsInSession, 5);
     });
 
+    group('V104 productivity fields', () {
+      test('parses consumedWeightKgInSession + rollsContributedInSession', () {
+        final Map<String, dynamic> json = _baseJson()
+          ..['consumedWeightKgInSession'] = 142.5
+          ..['rollsContributedInSession'] = 3;
+
+        final ShiftLineSummary entity =
+            ShiftLineSummaryResponse.fromJson(json).toEntity();
+        expect(entity.consumedWeightKgInSession, 142.5);
+        expect(entity.rollsContributedInSession, 3);
+      });
+
+      test('defaults to null kg + 0 rolls on legacy data (fields absent)', () {
+        final ShiftLineSummary entity =
+            ShiftLineSummaryResponse.fromJson(_baseJson()).toEntity();
+        expect(entity.consumedWeightKgInSession, isNull);
+        expect(entity.rollsContributedInSession, 0);
+      });
+    });
+
     test('parses a consumedRolls array with one full-consumption item', () {
       final Map<String, dynamic> json = _baseJson()
         ..['consumedRolls'] = <Map<String, dynamic>>[_consumedRollJson()];
@@ -285,6 +305,59 @@ void main() {
           ShiftLineSummaryResponse.fromJson(json).toEntity().allowedRolls;
       expect(rolls[0].active, isTrue);
       expect(rolls[1].active, isFalse);
+    });
+  });
+
+  group('ShiftLineSummaryResponse mountedRoll', () {
+    Map<String, dynamic> mountedRollJson({Object? lastKnownWeightKg = 101.0}) =>
+        <String, dynamic>{
+          'consumptionItemId': 555,
+          'rollId': 67890,
+          'generatedRollId': '001000000777',
+          'rollTypeCode': 'TP-1',
+          'rollTypeName': 'White',
+          'lastKnownWeightKg': ?lastKnownWeightKg,
+        };
+
+    test('parses the mounted roll including lastKnownWeightKg', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['mountedRoll'] = mountedRollJson(lastKnownWeightKg: 101.0);
+
+      final SummaryMountedRoll? roll =
+          ShiftLineSummaryResponse.fromJson(json).toEntity().mountedRoll;
+
+      expect(roll, isNotNull);
+      expect(roll!.generatedRollId, '001000000777');
+      expect(roll.rollTypeName, 'White');
+      expect(roll.lastKnownWeightKg, 101.0);
+    });
+
+    test('coerces an integer weight to double', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['mountedRoll'] = mountedRollJson(lastKnownWeightKg: 75);
+
+      final SummaryMountedRoll roll =
+          ShiftLineSummaryResponse.fromJson(json).toEntity().mountedRoll!;
+
+      expect(roll.lastKnownWeightKg, 75.0);
+    });
+
+    test('mounted roll with no lastKnownWeightKg → null (not substituted)', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['mountedRoll'] = mountedRollJson(lastKnownWeightKg: null);
+
+      final SummaryMountedRoll roll =
+          ShiftLineSummaryResponse.fromJson(json).toEntity().mountedRoll!;
+
+      expect(roll.generatedRollId, '001000000777');
+      expect(roll.lastKnownWeightKg, isNull);
+    });
+
+    test('absent mountedRoll key → null mountedRoll (no-mount state)', () {
+      final SummaryMountedRoll? roll =
+          ShiftLineSummaryResponse.fromJson(_baseJson()).toEntity().mountedRoll;
+
+      expect(roll, isNull);
     });
   });
 }

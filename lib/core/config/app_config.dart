@@ -78,7 +78,14 @@ class AppConfig {
       'ALLOW_STAGING_SELF_SIGNED_CERT',
     );
 
-    final AppEnvironment env = AppEnvironment.fromName(envName);
+    // Resolve the environment. An explicit `APP_ENV` always wins. When it is
+    // unset, a Flutter debug binary (`flutter run` / IDE Run-and-Debug)
+    // defaults to the `debug` backend (local DDNS) so day-to-day debugging
+    // hits hamzadamra.ddns.net:8080 without any dart-defines; release/profile
+    // builds (the testing APK) keep defaulting to staging.
+    final AppEnvironment env = envName.trim().isEmpty
+        ? (kDebugMode ? AppEnvironment.debug : AppEnvironment.staging)
+        : AppEnvironment.fromName(envName);
 
     String baseUrl = envBaseUrl;
     if (baseUrl.isEmpty) {

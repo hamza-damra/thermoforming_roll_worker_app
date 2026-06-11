@@ -39,7 +39,7 @@ class ReturnedRemainingCard extends StatelessWidget {
 
   static const String _heading = 'تم إرجاع المتبقي بواسطة المشغل';
   static const String _detail =
-      'قام المشغل بتغيير المنتج إلى منتج غير متوافق مع الرول. تم إغلاق الرول وإرجاع المتبقي تلقائيًا.';
+      'قام المشغل بتغيير المنتج إلى منتج غير متوافق مع الرول. تم إنزال الرول وإرجاع المتبقي تلقائيًا.';
   static const String _generatedRollId = 'رقم الرول';
   static const String _returnedLabel = 'الوزن المُعاد';
   static const String _oldProductLabel = 'المنتج السابق';

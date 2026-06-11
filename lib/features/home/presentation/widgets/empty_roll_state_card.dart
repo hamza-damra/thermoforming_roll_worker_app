@@ -29,7 +29,7 @@ class EmptyRollStateCard extends StatelessWidget {
 
   static const String defaultTitle = 'الرول المركب حالياً';
   static const String defaultMessage = 'لا يوجد رول مركب حالياً';
-  static const String defaultHelper = 'اضغط تسجيل رول لتركيب رول جديد';
+  static const String defaultHelper = 'اضغط تركيب رول لبدء رول جديد';
 
   @override
   Widget build(BuildContext context) {

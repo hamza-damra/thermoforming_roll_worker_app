@@ -199,6 +199,8 @@ class ShiftLineSummaryResponse {
     required this.thermoformingLineName,
     required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
+    this.consumedWeightKgInSession,
+    this.rollsContributedInSession = 0,
     this.consumedRolls = const <ConsumedRollResponse>[],
     this.allowedRolls = const <AllowedRollResponse>[],
     this.mountedRoll,
@@ -222,6 +224,10 @@ class ShiftLineSummaryResponse {
       completedRollsInSession: json['completedRollsInSession'] as int,
       completedRollsByCurrentWorker:
           json['completedRollsByCurrentWorker'] as int,
+      // V104 productivity fields (additive; null/absent on legacy data).
+      consumedWeightKgInSession: _asDouble(json['consumedWeightKgInSession']),
+      rollsContributedInSession:
+          _asInt(json['rollsContributedInSession']) ?? 0,
       consumedRolls: _parseConsumedRolls(json['consumedRolls']),
       // allowedRolls is additive: a missing/null/malformed value yields [] so
       // older backends never crash the client (compat handled here, not in UI).
@@ -250,6 +256,14 @@ class ShiftLineSummaryResponse {
   final String thermoformingLineName;
   final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
+
+  /// PRIMARY worker metric (V104): kg this session's worker consumed. `null`
+  /// on legacy backends that predate the field.
+  final double? consumedWeightKgInSession;
+
+  /// SECONDARY metric (V104): distinct rolls this worker consumed > 0. `0` when
+  /// absent on legacy data.
+  final int rollsContributedInSession;
   final List<ConsumedRollResponse> consumedRolls;
   final List<AllowedRollResponse> allowedRolls;
   final SummaryMountedRollResponse? mountedRoll;
@@ -280,6 +294,8 @@ class ShiftLineSummaryResponse {
     thermoformingLineName: thermoformingLineName,
     completedRollsInSession: completedRollsInSession,
     completedRollsByCurrentWorker: completedRollsByCurrentWorker,
+    consumedWeightKgInSession: consumedWeightKgInSession,
+    rollsContributedInSession: rollsContributedInSession,
     consumedRolls: consumedRolls.map((e) => e.toEntity()).toList(),
     allowedRolls: allowedRolls.map((e) => e.toEntity()).toList(),
     mountedRoll: mountedRoll?.toEntity(),
@@ -356,6 +372,8 @@ class ShiftLineSummaryResponse {
   static bool? _asBool(Object? v) => v is bool ? v : null;
 
   static int? _asInt(Object? v) => v is num ? v.toInt() : null;
+
+  static double? _asDouble(Object? v) => v is num ? v.toDouble() : null;
 
   static num? _asNum(Object? v) => v is num ? v : null;
 

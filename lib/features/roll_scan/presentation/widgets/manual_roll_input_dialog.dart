@@ -5,7 +5,6 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/app_secondary_button.dart';
-import '../../../../core/widgets/inline_error.dart';
 import '../controllers/roll_scan_controller.dart';
 
 /// Manual fallback for entering a 12-digit `generatedRollId` when the
@@ -28,8 +27,8 @@ Future<String?> showManualRollInputDialog(
 class _ManualRollInputDialog extends StatefulWidget {
   const _ManualRollInputDialog({this.accent});
 
-  /// Active line accent — tints the QR icon, the focused input border and the
-  /// confirm button. Falls back to the brand primary when null.
+  /// Active line accent — tints the QR icon, the focused input border, the
+  /// cursor and the confirm button. Falls back to the brand primary when null.
   final Color? accent;
 
   @override
@@ -37,15 +36,15 @@ class _ManualRollInputDialog extends StatefulWidget {
 }
 
 class _ManualRollInputDialogState extends State<_ManualRollInputDialog> {
+  static const int _digits = 12;
   static const String _title = 'إدخال رقم الرول';
-  static const String _hint = '٠٠٠٠٠٠٠٠٠٠٠٠';
+  // A clear example, NOT a row of dots — styled faint via the hint style.
+  static const String _hint = 'مثال: 018000000004';
   static const String _formatHint = 'يجب أن يتكون رقم الرول من 12 رقمًا';
   static const String _submit = 'تركيب الرول';
   static const String _cancel = 'إلغاء';
-  static const String _formatError = 'الرجاء إدخال 12 رقمًا بالضبط';
 
   final TextEditingController _controller = TextEditingController();
-  String? _errorText;
 
   @override
   void dispose() {
@@ -54,13 +53,14 @@ class _ManualRollInputDialogState extends State<_ManualRollInputDialog> {
     super.dispose();
   }
 
+  /// Trimmed current value — digits only by construction (input formatter).
+  String get _value => _controller.text.trim();
+
+  bool get _canSubmit => RollScanController.isValidGeneratedRollId(_value);
+
   void _onSubmit() {
-    final String text = _controller.text.trim();
-    if (!RollScanController.isValidGeneratedRollId(text)) {
-      setState(() => _errorText = _formatError);
-      return;
-    }
-    Navigator.of(context).pop(text);
+    if (!_canSubmit) return;
+    Navigator.of(context).pop(_value);
   }
 
   @override
@@ -75,7 +75,7 @@ class _ManualRollInputDialogState extends State<_ManualRollInputDialog> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+          children: <Widget>[
             const Text(_formatHint, style: AppTextStyles.label),
             const SizedBox(height: 12),
             TextField(
@@ -83,36 +83,77 @@ class _ManualRollInputDialogState extends State<_ManualRollInputDialog> {
               autofocus: true,
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.done,
-              maxLength: 12,
-              style: AppTextStyles.h3.copyWith(letterSpacing: 4),
+              maxLength: _digits,
+              // Numeric value reads LTR even inside the RTL dialog; centered
+              // and large for factory-floor legibility.
               textAlign: TextAlign.center,
+              textDirection: TextDirection.ltr,
+              showCursor: true,
+              cursorWidth: 2.5,
+              cursorColor: accent,
+              style: const TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 3,
+                color: AppColors.textPrimary,
+              ),
               inputFormatters: <TextInputFormatter>[
                 FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(_digits),
               ],
               decoration: InputDecoration(
                 hintText: _hint,
-                counterText: '',
+                hintStyle: AppTextStyles.body.copyWith(
+                  color: AppColors.textSecondary.withValues(alpha: 0.5),
+                  letterSpacing: 2,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 18,
+                  horizontal: 12,
+                ),
                 prefixIcon: Icon(Icons.qr_code_rounded, color: accent),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.border,
+                    width: 1.2,
+                  ),
+                ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: accent, width: 1.5),
+                  borderSide: BorderSide(color: accent, width: 2),
                 ),
               ),
+              // Clean "8/12" counter instead of the default Material counter.
+              buildCounter:
+                  (
+                    BuildContext context, {
+                    required int currentLength,
+                    required bool isFocused,
+                    int? maxLength,
+                  }) => Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      '$currentLength/$maxLength',
+                      textAlign: TextAlign.center,
+                      textDirection: TextDirection.ltr,
+                      style: AppTextStyles.caption.copyWith(
+                        color: currentLength == maxLength
+                            ? accent
+                            : AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              onChanged: (_) => setState(() {}),
               onSubmitted: (_) => _onSubmit(),
-              onChanged: (_) {
-                if (_errorText != null) setState(() => _errorText = null);
-              },
             ),
-            if (_errorText != null) ...[
-              const SizedBox(height: 12),
-              InlineError(message: _errorText!),
-            ],
           ],
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        actions: [
+        actions: <Widget>[
           Row(
-            children: [
+            children: <Widget>[
               Expanded(
                 child: AppSecondaryButton(
                   label: _cancel,
@@ -122,13 +163,14 @@ class _ManualRollInputDialogState extends State<_ManualRollInputDialog> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                // No leading icon here: the icon + the half-width Expanded cell
+                // No leading icon: the icon + the half-width Expanded cell
                 // squeezed the Arabic label into an ellipsis ("تركيب…"). Text
-                // alone renders the full "تركيب الرول".
+                // alone renders the full "تركيب الرول". Disabled until exactly
+                // 12 digits are entered.
                 child: AppPrimaryButton(
                   label: _submit,
                   color: accent,
-                  onPressed: _onSubmit,
+                  onPressed: _canSubmit ? _onSubmit : null,
                 ),
               ),
             ],

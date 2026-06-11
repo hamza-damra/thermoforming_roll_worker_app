@@ -56,8 +56,82 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
   @override
   void dispose() {
     _controller?.removeListener(_onTabChanged);
+    _controller?.animation?.removeListener(_onAnimationTick);
     _controller?.dispose();
     super.dispose();
+  }
+
+  void _onAnimationTick() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Color _getInterpolatedColor(double value, List<_MachineTab> tabs) {
+    if (tabs.isEmpty) return AppColors.primary;
+    if (tabs.length == 1) return tabs[0].accent;
+    final int floorIndex = value.floor().clamp(0, tabs.length - 1);
+    final int ceilIndex = value.ceil().clamp(0, tabs.length - 1);
+    if (floorIndex == ceilIndex) {
+      return tabs[floorIndex].accent;
+    }
+    final double t = value - floorIndex;
+    return Color.lerp(tabs[floorIndex].accent, tabs[ceilIndex].accent, t) ??
+        tabs[floorIndex].accent;
+  }
+
+  Color _resolveLoadingAccent({
+    required RollWorkerBootstrapState bootstrap,
+    required MultiLineSessionRegistryState registry,
+    required SessionsMeState meState,
+  }) {
+    final int? activeShiftLineId =
+        registry is RegistryActive ? registry.activeShiftLineId : null;
+
+    final List<RollWorkerBootstrapLine> lines = _linesFrom(bootstrap);
+
+    if (activeShiftLineId != null) {
+      final int index = lines.indexWhere((l) => l.shiftLineId == activeShiftLineId);
+      if (index >= 0) {
+        final RollWorkerBootstrapLine line = lines[index];
+        return AppColors.accentForLine(
+          palletizingLineId: line.palletizingLineId,
+          thermoformingLineId: line.thermoformingLineId,
+          palletizingLineCode: line.palletizingLineCode,
+        );
+      }
+    }
+
+    if (activeShiftLineId != null) {
+      final List<RollWorkerActiveLine>? meLines = switch (meState) {
+        SessionsMeLoaded(:final me) => me.lines,
+        SessionsMeLoading(previous: final me?) => me.lines,
+        SessionsMeError(previous: final me?) => me.lines,
+        _ => null,
+      };
+      if (meLines != null) {
+        for (final RollWorkerActiveLine l in meLines) {
+          if (l.shiftLineId == activeShiftLineId) {
+            return l.accentColor;
+          }
+        }
+      }
+    }
+
+    if (activeShiftLineId != null) {
+      return AppColors.accentForLine(thermoformingLineId: activeShiftLineId);
+    }
+
+    if (lines.isNotEmpty) {
+      final RollWorkerBootstrapLine firstLine = lines.first;
+      return AppColors.accentForLine(
+        palletizingLineId: firstLine.palletizingLineId,
+        thermoformingLineId: firstLine.thermoformingLineId,
+        palletizingLineCode: firstLine.palletizingLineCode,
+      );
+    }
+
+    return AppColors.primary;
   }
 
   // ─── Tab-list construction ────────────────────────────────────────────
@@ -190,6 +264,7 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
     }
 
     _controller?.removeListener(_onTabChanged);
+    _controller?.animation?.removeListener(_onAnimationTick);
     _controller?.dispose();
     _controller = TabController(
       length: keys.length,
@@ -197,6 +272,7 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
       initialIndex: keys.isEmpty ? 0 : initial.clamp(0, keys.length - 1),
     );
     _controller!.addListener(_onTabChanged);
+    _controller!.animation?.addListener(_onAnimationTick);
     _controllerKeys = keys;
   }
 
@@ -251,8 +327,14 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
     final List<_MachineTab> tabs = _buildTabs(lines, registry, meState);
 
     if (tabs.isEmpty) {
+      final Color loadingAccent = _resolveLoadingAccent(
+        bootstrap: bootstrap,
+        registry: registry,
+        meState: meState,
+      );
       return _NoMachinesScaffold(
         bootstrap: bootstrap,
+        accent: loadingAccent,
         onRetry: () => ref
             .read(rollWorkerBootstrapControllerProvider.notifier)
             .refresh(trigger: 'manual'),
@@ -264,7 +346,8 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
     _syncController(tabs, activeShiftLineId);
 
     final int currentIndex = _controller!.index.clamp(0, tabs.length - 1);
-    final Color activeAccent = tabs[currentIndex].accent;
+    final double animationValue = _controller?.animation?.value ?? currentIndex.toDouble();
+    final Color activeAccent = _getInterpolatedColor(animationValue, tabs);
 
     return Scaffold(
       backgroundColor: AppColors.scaffold,
@@ -368,10 +451,15 @@ class _TabLabel extends StatelessWidget {
 /// no active sessions): loading, error, or the "waiting for the operator
 /// app" empty state.
 class _NoMachinesScaffold extends StatelessWidget {
-  const _NoMachinesScaffold({required this.bootstrap, required this.onRetry});
+  const _NoMachinesScaffold({
+    required this.bootstrap,
+    required this.onRetry,
+    this.accent,
+  });
 
   final RollWorkerBootstrapState bootstrap;
   final VoidCallback onRetry;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
@@ -382,7 +470,7 @@ class _NoMachinesScaffold extends StatelessWidget {
     switch (bootstrap) {
       case RollWorkerBootstrapInitial():
       case RollWorkerBootstrapLoading():
-        return const RollWorkerLoadingScaffold();
+        return RollWorkerLoadingScaffold(accent: accent);
       case RollWorkerBootstrapFailureState():
       case RollWorkerBootstrapLoaded():
         break;

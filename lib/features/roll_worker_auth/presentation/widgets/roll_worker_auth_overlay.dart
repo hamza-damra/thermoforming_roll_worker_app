@@ -7,8 +7,10 @@ import '../../../../core/errors/error_code.dart';
 import '../../../../core/errors/error_messages_ar.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../domain/entities/roll_worker_takeover.dart';
 import '../controllers/batch_auth_controller.dart';
 import '../controllers/batch_auth_state.dart';
+import 'roll_worker_takeover_card.dart';
 
 /// Blocking, in-place roll-worker PIN overlay.
 ///
@@ -60,6 +62,14 @@ class _RollWorkerAuthOverlayState
   String? _error;
   bool _locked = false;
 
+  /// Set when login returns `ROLL_WORKER_TAKEOVER_REQUIRED`. While non-null the
+  /// overlay renders the in-place takeover card instead of the PIN card.
+  RollWorkerTakeoverRequiredDetails? _takeover;
+
+  /// The PIN captured at the failed login, forwarded to the takeover card so it
+  /// can authenticate the takeover call and the follow-up re-login.
+  String? _takeoverPin;
+
   @override
   void initState() {
     super.initState();
@@ -106,6 +116,35 @@ class _RollWorkerAuthOverlayState
         _submitting = false;
         ref.read(batchAuthControllerProvider.notifier).reset();
       case BatchAuthFailure(:final AppFailure failure):
+        // V104: an abandoned mounted roll on the line → open the in-place
+        // takeover card instead of a generic error. Capture the PIN BEFORE
+        // clearing it; the takeover call + follow-up re-login both need it.
+        if (failure is BusinessFailure &&
+            failure.code == ErrorCode.rollWorkerTakeoverRequired) {
+          final RollWorkerTakeoverRequiredDetails? details =
+              RollWorkerTakeoverRequiredDetails.fromDetails(failure.details);
+          final String capturedPin = _pinController.text.trim();
+          _pinController.clear();
+          ref.read(batchAuthControllerProvider.notifier).reset();
+          if (!mounted) return;
+          if (details == null) {
+            // Malformed details — fall back to a generic error, never a
+            // dead-end.
+            setState(() {
+              _submitting = false;
+              _error = arabicMessageFor(failure);
+            });
+            return;
+          }
+          setState(() {
+            _submitting = false;
+            _error = null;
+            _locked = false;
+            _takeover = details;
+            _takeoverPin = capturedPin;
+          });
+          return;
+        }
         _pinController.clear();
         final String message = _messageFor(failure);
         // Clear the shared failure so a sibling overlay doesn't inherit it.
@@ -141,6 +180,28 @@ class _RollWorkerAuthOverlayState
   @override
   Widget build(BuildContext context) {
     ref.listen<BatchAuthState>(batchAuthControllerProvider, _onAuthStateChanged);
+
+    // V104 takeover: render the in-place takeover card on the same dimmed
+    // backdrop. Cancel returns to the PIN card.
+    final RollWorkerTakeoverRequiredDetails? takeover = _takeover;
+    if (takeover != null) {
+      return RollWorkerTakeoverCard(
+        shiftLineId: widget.shiftLineId,
+        accentColor: widget.accentColor,
+        details: takeover,
+        pin: _takeoverPin ?? '',
+        onCancel: () {
+          if (!mounted) return;
+          setState(() {
+            _takeover = null;
+            _takeoverPin = null;
+            _error = null;
+          });
+          _focusNode.requestFocus();
+        },
+      );
+    }
+
     final Color accent = widget.accentColor;
     final bool canSubmit =
         !_submitting &&

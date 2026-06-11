@@ -42,7 +42,8 @@ sealed class MultiLineSessionRegistryState {
 
 /// Cold-start: parallel `/current` calls are in flight.
 class RegistryRestoring extends MultiLineSessionRegistryState {
-  const RegistryRestoring();
+  const RegistryRestoring({this.restoredIds = const <int>{}});
+  final Set<int> restoredIds;
 }
 
 /// No active sessions. Bootstrap routes to picker (or PIN if a picker

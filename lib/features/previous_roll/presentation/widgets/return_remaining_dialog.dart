@@ -7,19 +7,23 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/app_secondary_button.dart';
 import '../../../../core/widgets/inline_error.dart';
+import '../../domain/entities/previous_roll_resolution.dart';
 import '../controllers/previous_roll_resolution_controller.dart';
 import '../controllers/previous_roll_resolution_state.dart';
 import 'remaining_weight_field.dart';
+import 'remaining_weight_validation.dart';
 
 /// Numeric input + confirm dialog for returning the remainder of a partial
-/// roll to the warehouse.
-Future<void> showReturnRemainingDialog(
+/// roll to the warehouse. Resolves to the [PreviousRollResolution] when the
+/// close succeeded (the logout flow uses it to print the remainder label, then
+/// log out), or `null` on cancel.
+Future<PreviousRollResolution?> showReturnRemainingDialog(
   BuildContext context, {
   required int shiftLineId,
   double? maxAllowedKg,
   Color? accent,
 }) {
-  return showDialog<void>(
+  return showDialog<PreviousRollResolution>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext context) => _ReturnRemainingDialog(
@@ -47,11 +51,6 @@ class _ReturnRemainingDialog extends ConsumerStatefulWidget {
   static const String body = 'هل تريد إرجاع الوزن المتبقي من هذا الرول؟';
   static const String submit = 'إرجاع المتبقي';
   static const String cancel = 'إلغاء';
-  static const String validationOverflow =
-      'لا يمكن أن يكون الوزن المتبقي أكبر من وزن بداية الرول';
-  static const String validationFormat = 'يرجى إدخال الوزن المتبقي';
-  static const String validationNegative =
-      'يجب أن يكون الوزن المتبقي أكبر من أو يساوي صفر';
 
   @override
   ConsumerState<_ReturnRemainingDialog> createState() =>
@@ -61,7 +60,11 @@ class _ReturnRemainingDialog extends ConsumerStatefulWidget {
 class _ReturnRemainingDialogState
     extends ConsumerState<_ReturnRemainingDialog> {
   final TextEditingController _weightController = TextEditingController();
-  String? _localError;
+
+  /// `true` once the worker has typed into the field — keeps the dialog from
+  /// showing an error the instant it opens (the empty field is "invalid" but
+  /// not yet "wrong"). The confirm button is disabled regardless.
+  bool _touched = false;
 
   @override
   void dispose() {
@@ -71,23 +74,20 @@ class _ReturnRemainingDialogState
 
   double? _parseWeight() => double.tryParse(_weightController.text.trim());
 
-  String? _validate() {
-    final double? value = _parseWeight();
-    if (value == null) return _ReturnRemainingDialog.validationFormat;
-    if (value < 0) return _ReturnRemainingDialog.validationNegative;
-    if (widget.maxAllowedKg != null && value > widget.maxAllowedKg!) {
-      return _ReturnRemainingDialog.validationOverflow;
-    }
-    return null;
-  }
+  /// Live validation error (null when valid). Enforces `0 < value <= max`
+  /// (handoff: remaining weight must be > 0; 0 is only valid for full consume).
+  String? get _error => RemainingWeightValidation.validate(
+    _weightController.text,
+    maxAllowedKg: widget.maxAllowedKg,
+  );
+
+  bool get _canSubmit => _error == null;
 
   Future<void> _submit() async {
-    final String? error = _validate();
-    if (error != null) {
-      setState(() => _localError = error);
+    if (!_canSubmit) {
+      setState(() => _touched = true);
       return;
     }
-    setState(() => _localError = null);
     await ref
         .read(
           previousRollResolutionControllerProvider(widget.shiftLineId).notifier,
@@ -104,7 +104,9 @@ class _ReturnRemainingDialogState
     ref.listen<PreviousRollResolutionState>(
       previousRollResolutionControllerProvider(widget.shiftLineId),
       (prev, next) {
-        if (next is PreviousRollResolved) Navigator.of(context).maybePop();
+        if (next is PreviousRollResolved) {
+          Navigator.of(context).pop(next.resolution);
+        }
       },
     );
 
@@ -135,13 +137,9 @@ class _ReturnRemainingDialogState
               controller: _weightController,
               maxAllowedKg: widget.maxAllowedKg,
               enabled: !resolving,
-              errorText: _localError,
+              errorText: _touched ? _error : null,
               accent: widget.accent,
-              onChanged: (_) {
-                if (_localError != null) {
-                  setState(() => _localError = null);
-                }
-              },
+              onChanged: (_) => setState(() => _touched = true),
             ),
             if (backendError != null) ...[
               const SizedBox(height: 12),
@@ -168,7 +166,7 @@ class _ReturnRemainingDialogState
                   label: _ReturnRemainingDialog.submit,
                   color: widget.accent,
                   isLoading: resolving,
-                  onPressed: resolving ? null : _submit,
+                  onPressed: (resolving || !_canSubmit) ? null : _submit,
                 ),
               ),
             ],

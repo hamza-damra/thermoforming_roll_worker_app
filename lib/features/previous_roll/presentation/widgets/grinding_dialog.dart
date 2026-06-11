@@ -7,20 +7,25 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/app_secondary_button.dart';
 import '../../../../core/widgets/inline_error.dart';
+import '../../domain/entities/previous_roll_resolution.dart';
 import '../controllers/previous_roll_resolution_controller.dart';
 import '../controllers/previous_roll_resolution_state.dart';
 import 'remaining_weight_field.dart';
+import 'remaining_weight_validation.dart';
 
 /// Numeric input + confirm dialog for sending the remainder of a partial
 /// roll to the grinding station. Adds an extra warning per requirements §10
 /// because the action is not reversible from the worker's side.
-Future<void> showGrindingDialog(
+/// Resolves to the [PreviousRollResolution] when the grinding close succeeded
+/// (the logout flow uses it to print the remainder label, then log out), or
+/// `null` on cancel.
+Future<PreviousRollResolution?> showGrindingDialog(
   BuildContext context, {
   required int shiftLineId,
   double? maxAllowedKg,
   Color? accent,
 }) {
-  return showDialog<void>(
+  return showDialog<PreviousRollResolution>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext context) => _GrindingDialog(
@@ -50,11 +55,11 @@ class _GrindingDialog extends ConsumerStatefulWidget {
   static const String body = 'هل تريد إرسال الوزن المتبقي للجرش؟';
   static const String submit = 'تأكيد الجرش';
   static const String cancel = 'إلغاء';
-  static const String validationOverflow =
-      'لا يمكن أن يكون الوزن المتبقي أكبر من وزن بداية الرول';
-  static const String validationFormat = 'يرجى إدخال الوزن المتبقي';
-  static const String validationNegative =
-      'يجب أن يكون الوزن المتبقي أكبر من أو يساوي صفر';
+
+  /// Extra warning per requirements §10 — grinding is not reversible from the
+  /// worker's side.
+  static const String warning =
+      'سيتم إرسال هذه البقايا إلى خط الجرش، هل أنت متأكد؟';
 
   @override
   ConsumerState<_GrindingDialog> createState() => _GrindingDialogState();
@@ -62,7 +67,9 @@ class _GrindingDialog extends ConsumerStatefulWidget {
 
 class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
   final TextEditingController _weightController = TextEditingController();
-  String? _localError;
+
+  /// `true` once the worker has typed — suppresses an error on first open.
+  bool _touched = false;
 
   @override
   void dispose() {
@@ -72,23 +79,19 @@ class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
 
   double? _parseWeight() => double.tryParse(_weightController.text.trim());
 
-  String? _validate() {
-    final double? value = _parseWeight();
-    if (value == null) return _GrindingDialog.validationFormat;
-    if (value < 0) return _GrindingDialog.validationNegative;
-    if (widget.maxAllowedKg != null && value > widget.maxAllowedKg!) {
-      return _GrindingDialog.validationOverflow;
-    }
-    return null;
-  }
+  /// Live validation error (null when valid). Enforces `0 < value <= max`.
+  String? get _error => RemainingWeightValidation.validate(
+    _weightController.text,
+    maxAllowedKg: widget.maxAllowedKg,
+  );
+
+  bool get _canSubmit => _error == null;
 
   Future<void> _submit() async {
-    final String? error = _validate();
-    if (error != null) {
-      setState(() => _localError = error);
+    if (!_canSubmit) {
+      setState(() => _touched = true);
       return;
     }
-    setState(() => _localError = null);
     await ref
         .read(
           previousRollResolutionControllerProvider(widget.shiftLineId).notifier,
@@ -105,7 +108,9 @@ class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
     ref.listen<PreviousRollResolutionState>(
       previousRollResolutionControllerProvider(widget.shiftLineId),
       (prev, next) {
-        if (next is PreviousRollResolved) Navigator.of(context).maybePop();
+        if (next is PreviousRollResolved) {
+          Navigator.of(context).pop(next.resolution);
+        }
       },
     );
 
@@ -125,18 +130,45 @@ class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(_GrindingDialog.body, style: AppTextStyles.bodyLarge),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.warning.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 18,
+                    color: AppColors.warning,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _GrindingDialog.warning,
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppColors.warning,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 16),
             RemainingWeightField(
               controller: _weightController,
               maxAllowedKg: widget.maxAllowedKg,
               enabled: !resolving,
-              errorText: _localError,
+              errorText: _touched ? _error : null,
               accent: widget.accent,
-              onChanged: (_) {
-                if (_localError != null) {
-                  setState(() => _localError = null);
-                }
-              },
+              onChanged: (_) => setState(() => _touched = true),
             ),
             if (backendError != null) ...[
               const SizedBox(height: 12),
@@ -163,7 +195,7 @@ class _GrindingDialogState extends ConsumerState<_GrindingDialog> {
                   label: _GrindingDialog.submit,
                   icon: Icons.recycling_rounded,
                   isLoading: resolving,
-                  onPressed: resolving ? null : _submit,
+                  onPressed: (resolving || !_canSubmit) ? null : _submit,
                 ),
               ),
             ],

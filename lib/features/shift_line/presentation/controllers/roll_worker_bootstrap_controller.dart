@@ -222,6 +222,11 @@ class RollWorkerBootstrapController extends Notifier<RollWorkerBootstrapState> {
       case PickerSseRefreshTriggered():
         refreshLog('picker SSE event → debounced bootstrap refresh');
         _scheduleDebouncedRefresh();
+      case PickerSseUrgentAnnouncement():
+        // Not a refresh trigger — handled by the announcement notifier via
+        // SseLifecycleController. The picker ignores it (and only runs while
+        // logged out, where there are no announcements to show anyway).
+        break;
     }
   }
 

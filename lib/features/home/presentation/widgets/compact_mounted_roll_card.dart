@@ -8,11 +8,14 @@ import '../../domain/entities/shift_line_summary.dart';
 
 /// Current mounted-roll card driven by [SummaryMountedRoll].
 ///
-/// Deliberately minimal: the 12-digit roll number and an "in consumption"
-/// status pill only. Roll type and current weight were removed — the worker
-/// identifies the mounted roll by its serial, and the product/allowed-rolls
-/// card above already carries the type context. Rendered only when the backend
-/// returns a non-null `mountedRoll` in the summary response.
+/// Shows the 12-digit roll number, an "in consumption" status pill, and the
+/// backend-authoritative latest known weight of the mounted roll
+/// (`آخر وزن معروف`). The weight is read-only — never editable here — and is
+/// taken straight from [SummaryMountedRoll.lastKnownWeightKg]; the app never
+/// invents or derives it. When the backend has not recorded a weight yet
+/// (`null`), the card shows `الوزن غير متوفر` and still renders the roll id.
+/// Rendered only when the backend returns a non-null `mountedRoll` in the
+/// summary response (the no-mount state uses `EmptyRollStateCard`).
 class CompactMountedRollCard extends StatelessWidget {
   const CompactMountedRollCard({
     super.key,
@@ -27,9 +30,15 @@ class CompactMountedRollCard extends StatelessWidget {
   static const String _rollNumberLabel = 'رقم الرول';
   static const String _statusText = 'قيد الاستهلاك';
 
+  /// Operationally accurate wording: the value is the *latest known* persisted
+  /// weight for the mounted roll, not necessarily a live reading.
+  static const String _weightLabel = 'آخر وزن معروف';
+  static const String _weightUnavailable = 'الوزن غير متوفر';
+
   @override
   Widget build(BuildContext context) {
     final Color accent = accentColor ?? AppColors.primary;
+    final double? weightKg = roll.lastKnownWeightKg;
 
     return AppCard(
       elevated: true,
@@ -52,6 +61,29 @@ class CompactMountedRollCard extends StatelessWidget {
             roll.generatedRollId,
             style: AppTextStyles.h2.copyWith(letterSpacing: 1.5),
           ),
+          const SizedBox(height: 14),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: accent.withValues(alpha: 0.15),
+          ),
+          const SizedBox(height: 12),
+          const Text(_weightLabel, style: AppTextStyles.metricLabel),
+          const SizedBox(height: 2),
+          if (weightKg != null)
+            Text(
+              // App-wide weight idiom: 3 decimals + Arabic كغ (e.g. 101.000 كغ).
+              '${weightKg.toStringAsFixed(3)} كغ',
+              style: AppTextStyles.metricValue,
+            )
+          else
+            Text(
+              _weightUnavailable,
+              style: AppTextStyles.bodyLarge.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
         ],
       ),
     );

@@ -411,6 +411,47 @@ void main() {
         expect(transport.sendCalls, 0);
       },
     );
+
+    test(
+      'case 6b — SHIFT_LINE NOT_ACTIVE / NOT_FOUND also cascade '
+      '(authoritative per-line end signals, handoff §7)',
+      () async {
+        for (final ErrorCode code in const <ErrorCode>[
+          ErrorCode.thermoformingShiftLineNotActive,
+          ErrorCode.thermoformingShiftLineNotFound,
+        ]) {
+          final reprintRepo = _MockReprintRepo();
+          final printerRepo = _MockPrinterRepo();
+          final authRepo = _MockAuthRepo();
+          final transport = _FakePrinterTransport();
+          when(
+            () => reprintRepo.fetchLabel(
+              shiftLineId: kShiftLineId,
+              generatedRollId: kRollId,
+            ),
+          ).thenAnswer(
+            (_) async => LabelReprintFailureResult(BusinessFailure(code: code)),
+          );
+          when(() => printerRepo.getDefault()).thenReturn(_printer);
+          when(
+            () => authRepo.clearStoredToken(kShiftLineId),
+          ).thenAnswer((_) async {});
+          final container = _container(
+            reprintRepo: reprintRepo,
+            printerRepo: printerRepo,
+            transport: transport,
+            authRepo: authRepo,
+          );
+
+          await container
+              .read(labelReprintControllerProvider(kShiftLineId).notifier)
+              .reprint(kRollId);
+
+          verify(() => authRepo.clearStoredToken(kShiftLineId)).called(1);
+          expect(transport.sendCalls, 0, reason: 'no print on a dead line ($code)');
+        }
+      },
+    );
   });
 
   group('retry from fetch failure', () {

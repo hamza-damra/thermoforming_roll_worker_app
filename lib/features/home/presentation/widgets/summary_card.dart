@@ -4,45 +4,77 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/session_stat_tile.dart';
 
-/// Summary card showing the session-scoped completed-roll count.
+/// Session summary card.
+///
+/// V104: the headline is the worker's **consumed kilograms**
+/// ([consumedWeightKgInSession]) with rolls-contributed
+/// ([rollsContributedInSession]) as the sub-line. On legacy backends that omit
+/// the kg field ([consumedWeightKgInSession] == null) it falls back to the
+/// completed-rolls count headline.
 ///
 /// [completedRollsByCurrentWorker] is kept on the wire for contract
-/// continuity, but it equals [completedRollsInSession] now that the counter
-/// is session-scoped. The "منك: N" sub-line is hidden when the two are equal
-/// to avoid a visually duplicated number.
-/// [isRefreshing] drives a small inline spinner while a background re-fetch
-/// is in flight — the card stays visible with the last good data.
+/// continuity; the "منك: N" sub-line is hidden when it equals
+/// [completedRollsInSession]. [isRefreshing] drives a small inline spinner
+/// while a background re-fetch is in flight — the card stays visible with the
+/// last good data.
 class SummaryCard extends StatelessWidget {
   const SummaryCard({
     super.key,
     required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
+    this.consumedWeightKgInSession,
+    this.rollsContributedInSession = 0,
     this.isRefreshing = false,
     this.accent,
   });
 
   final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
+  final double? consumedWeightKgInSession;
+  final int rollsContributedInSession;
   final bool isRefreshing;
   final Color? accent;
 
-  static const String label = 'الرولات المنجزة في هذه الجلسة';
+  static const String consumedLabel = 'المستهلك في هذه الجلسة';
+  static const String completedLabel = 'الرولات المنجزة في هذه الجلسة';
 
   @override
   Widget build(BuildContext context) {
     final Color color = accent ?? AppColors.primary;
-    final bool showByCurrentWorker =
-        completedRollsByCurrentWorker > 0 &&
-        completedRollsByCurrentWorker != completedRollsInSession;
+
+    final IconData icon;
+    final String label;
+    final String value;
+    final String? subline;
+    final double? consumed = consumedWeightKgInSession;
+    if (consumed != null) {
+      // V104 primary metric: consumed kg, with rolls-contributed secondary.
+      icon = Icons.scale_rounded;
+      label = consumedLabel;
+      value = '${consumed.toStringAsFixed(1)} كغ';
+      subline = 'ساهمت في: $rollsContributedInSession رولات';
+    } else {
+      // Legacy fallback: completed-rolls count headline.
+      icon = Icons.local_shipping_rounded;
+      label = completedLabel;
+      value = '$completedRollsInSession';
+      final bool showByCurrentWorker =
+          completedRollsByCurrentWorker > 0 &&
+          completedRollsByCurrentWorker != completedRollsInSession;
+      subline = showByCurrentWorker
+          ? 'منك: $completedRollsByCurrentWorker'
+          : null;
+    }
+
     return AppCard(
       elevated: true,
       accent: color,
       borderRadius: 18,
       child: SessionStatTile(
-        icon: Icons.local_shipping_rounded,
+        icon: icon,
         label: label,
-        value: '$completedRollsInSession',
-        subline: showByCurrentWorker ? 'منك: $completedRollsByCurrentWorker' : null,
+        value: value,
+        subline: subline,
         accent: color,
         trailing: isRefreshing
             ? const SizedBox(

@@ -44,7 +44,7 @@ class MultiLineSessionRegistry
       return;
     }
     if (state is! RegistryActive) {
-      state = const RegistryRestoring();
+      state = RegistryRestoring(restoredIds: ids);
     }
 
     final List<int> orderedIds = ids.toList(growable: false);
@@ -202,6 +202,43 @@ class MultiLineSessionRegistry
     final int newActive = afterCall.activeShiftLineId == shiftLineId
         ? remaining.keys.first
         : afterCall.activeShiftLineId;
+    state = RegistryActive(
+      sessions: remaining,
+      activeShiftLineId: newActive,
+      logoutStatus: remainingStatus,
+      lastEvent: DeliberateLogout(shiftLineId),
+    );
+  }
+
+  /// Drops a line after the worker's session was already ended server-side by
+  /// a keep-mounted handover (V104). Unlike [logout] there is NO network call —
+  /// the keep-mounted endpoint atomically ended the session and the repository
+  /// already cleared the stored token; this clears it again defensively
+  /// (idempotent), drops the id, rewrites the index, and reassigns the active
+  /// pointer. Emits a [DeliberateLogout] event so the bootstrap shows no
+  /// cascade snackbar (this was an intentional handover, not a lost line).
+  Future<void> markSessionEndedLocally(int shiftLineId) async {
+    await _repo.clearStoredToken(shiftLineId);
+
+    final MultiLineSessionRegistryState current = state;
+    if (current is! RegistryActive) return;
+    if (!current.sessions.containsKey(shiftLineId)) return;
+
+    final Map<int, RollWorkerSession> remaining =
+        Map<int, RollWorkerSession>.from(current.sessions)
+          ..remove(shiftLineId);
+    final Map<int, LineLogoutStatus> remainingStatus =
+        Map<int, LineLogoutStatus>.from(current.logoutStatus)
+          ..remove(shiftLineId);
+    await _index.writeIds(remaining.keys.toSet());
+
+    if (remaining.isEmpty) {
+      state = RegistryEmpty(lastEvent: DeliberateLogout(shiftLineId));
+      return;
+    }
+    final int newActive = current.activeShiftLineId == shiftLineId
+        ? remaining.keys.first
+        : current.activeShiftLineId;
     state = RegistryActive(
       sessions: remaining,
       activeShiftLineId: newActive,

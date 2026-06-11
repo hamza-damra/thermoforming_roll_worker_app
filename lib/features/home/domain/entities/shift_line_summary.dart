@@ -227,6 +227,8 @@ class ShiftLineSummary {
     required this.thermoformingLineName,
     required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
+    this.consumedWeightKgInSession,
+    this.rollsContributedInSession = 0,
     this.consumedRolls = const <ConsumedRoll>[],
     this.allowedRolls = const <AllowedRoll>[],
     this.mountedRoll,
@@ -258,6 +260,15 @@ class ShiftLineSummary {
   /// [completedRollsInSession] since a session is by definition tied to one
   /// worker. The UI may hide the "منك" sub-line when both are equal.
   final int completedRollsByCurrentWorker;
+
+  /// PRIMARY worker-productivity metric (V104): kilograms this session's worker
+  /// personally consumed. `null` on legacy backends predating the field — the
+  /// UI falls back to the completed-rolls count as the headline in that case.
+  final double? consumedWeightKgInSession;
+
+  /// SECONDARY metric (V104): distinct rolls this worker consumed > 0. `0` when
+  /// absent on legacy data.
+  final int rollsContributedInSession;
 
   /// Latest closed rolls in the current session, newest-first, capped at 10
   /// by the backend. Always taken straight from the freshest REST response —
@@ -320,6 +331,8 @@ class ShiftLineSummary {
     String? thermoformingLineName,
     int? completedRollsInSession,
     int? completedRollsByCurrentWorker,
+    double? consumedWeightKgInSession,
+    int? rollsContributedInSession,
     List<ConsumedRoll>? consumedRolls,
     List<AllowedRoll>? allowedRolls,
     SummaryMountedRoll? mountedRoll,
@@ -350,6 +363,10 @@ class ShiftLineSummary {
           completedRollsInSession ?? this.completedRollsInSession,
       completedRollsByCurrentWorker:
           completedRollsByCurrentWorker ?? this.completedRollsByCurrentWorker,
+      consumedWeightKgInSession:
+          consumedWeightKgInSession ?? this.consumedWeightKgInSession,
+      rollsContributedInSession:
+          rollsContributedInSession ?? this.rollsContributedInSession,
       consumedRolls: consumedRolls ?? this.consumedRolls,
       allowedRolls: allowedRolls ?? this.allowedRolls,
       mountedRoll: clearMountedRoll ? null : (mountedRoll ?? this.mountedRoll),
@@ -386,6 +403,8 @@ class ShiftLineSummary {
         other.thermoformingLineName == thermoformingLineName &&
         other.completedRollsInSession == completedRollsInSession &&
         other.completedRollsByCurrentWorker == completedRollsByCurrentWorker &&
+        other.consumedWeightKgInSession == consumedWeightKgInSession &&
+        other.rollsContributedInSession == rollsContributedInSession &&
         listEquals(other.consumedRolls, consumedRolls) &&
         listEquals(other.allowedRolls, allowedRolls) &&
         other.mountedRoll == mountedRoll &&
@@ -407,6 +426,8 @@ class ShiftLineSummary {
     thermoformingLineName,
     completedRollsInSession,
     completedRollsByCurrentWorker,
+    consumedWeightKgInSession,
+    rollsContributedInSession,
     Object.hashAll(consumedRolls),
     Object.hashAll(allowedRolls),
     mountedRoll,

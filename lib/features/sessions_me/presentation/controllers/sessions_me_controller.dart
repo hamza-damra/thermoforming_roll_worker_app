@@ -5,9 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/diagnostics/refresh_log.dart';
 import '../../../../core/errors/app_failure.dart';
-import '../../../../core/errors/error_code.dart';
-import '../../../../core/storage/secure_token_storage.dart';
-import '../../../../core/storage/storage_providers.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
 import '../../data/sessions_me_providers.dart';
@@ -30,13 +27,19 @@ import 'sessions_me_state.dart';
 ///   - SSE disconnected → fallback poll at 2 s.
 ///   - On reconnect → one immediate catch-up refresh, fallback poll OFF.
 ///
-/// Cascade detection: on every successful response the controller diffs
-/// `me.shiftLineIds` against [MultiLineSessionRegistry.activeShiftLineIds].
-/// Any id present locally but missing remotely was cascaded (operator
-/// ended shift, takeover replaced this worker, etc.). For each such id
-/// the controller deletes the token and calls
-/// [MultiLineSessionRegistry.notifySessionLost], which collapses the
-/// registry to [RegistryEmpty] when no lines remain.
+/// Merge-based reconciliation (handoff §6). `/sessions/me` is worker-scoped
+/// and `start-batch` is additive — `start-batch [81]` while `82` is active
+/// leaves BOTH lines active, and a single `/sessions/me` returns every line
+/// the worker owns. On every SUCCESSFUL response the controller MERGES the
+/// worker's active lines into the registry and drops a local line ONLY once
+/// that exact line has been confirmed active by a prior `/sessions/me` and
+/// is now absent (handoff §7). A line that `start-batch` just created can be
+/// momentarily missing from `/sessions/me` due to read-after-write lag
+/// (handoff §6.5 "transiently omitted"); dropping it then is the production
+/// multi-line login-loop bug, so an as-yet-unconfirmed line is never
+/// cascade-dropped. A non-2xx `/sessions/me` drops NOTHING (handoff §6.4):
+/// the registry is preserved and recovery is left to the next SSE / poll
+/// refresh or a per-line re-auth.
 class SessionsMeController extends Notifier<SessionsMeState> {
   late SessionsMePollConfig _config;
 
@@ -56,6 +59,17 @@ class SessionsMeController extends Notifier<SessionsMeState> {
   /// fallback poll on/off.
   bool _sseConnected = false;
 
+  /// Shift-line ids that at least one SUCCESSFUL `/sessions/me` has reported
+  /// ACTIVE for this worker. A line becomes reconciliation-droppable only
+  /// after it appears here — this is the guard that stops a freshly
+  /// `start-batch`-created line from being cascade-dropped by a stale /
+  /// lagging `/sessions/me` that has not yet caught up to the new session
+  /// (handoff §6.5 "transiently omitted"). Ids are forgotten as they leave
+  /// the registry; the set resets to empty on controller rebuild, after
+  /// which the next refresh re-confirms every still-active line — so it can
+  /// only ever err toward KEEPING a line, never toward dropping one.
+  final Set<int> _confirmedLineIds = <int>{};
+
   @override
   SessionsMeState build() {
     _config = ref.read(sessionsMePollConfigProvider);
@@ -74,9 +88,6 @@ class SessionsMeController extends Notifier<SessionsMeState> {
   }
 
   SessionsMeRepository get _repo => ref.read(sessionsMeRepositoryProvider);
-
-  SecureTokenStorage get _tokenStorage =>
-      ref.read(secureTokenStorageProvider);
 
   // ─── Public API consumed by SseLifecycleController + UI ─────────────────
 
@@ -197,63 +208,70 @@ class SessionsMeController extends Notifier<SessionsMeState> {
     required RollWorkerMe? previous,
     required bool background,
   }) async {
-    refreshLog('sessions-me failed: $failure');
-    // 401 with all tokens stale → collapse to picker via the registry.
-    if (failure is BusinessFailure &&
-        failure.code == ErrorCode.rollWorkerSessionRequired) {
-      await _evictAllTokensAndNotify();
-      return;
-    }
-    // Background failure on top of a working snapshot — keep the snapshot.
+    // Handoff §6.4 / §7: a non-2xx `/sessions/me` is NEVER evidence that any
+    // line ended. The token we sent may simply have been rotated/replaced —
+    // the repo already retried with a DIFFERENT token before surfacing this.
+    // So we drop NO line and evict NO token here; the worker stays logged in
+    // on every active line and the registry is preserved. Recovery is the
+    // next SSE / poll refresh (the fallback poll keeps running while a line
+    // is active) or a per-line re-auth. Lines are dropped only by the
+    // explicit per-line end signals in handoff §7.
+    refreshLog('sessions-me failed (registry preserved, no drop): $failure');
     if (background && previous != null) {
-      state = SessionsMeLoaded(
-        me: previous,
-        fetchedAt: DateTime.now(),
-      );
+      // Transient background failure on top of a working snapshot — keep it
+      // so the home shell does not blank out.
+      state = SessionsMeLoaded(me: previous, fetchedAt: DateTime.now());
       return;
     }
     state = SessionsMeError(failure: failure, previous: previous);
   }
 
-  /// Walks `/sessions/me`'s `lines` and drops any registry id NOT in it
-  /// (handoff §3.4 — operator ended shift / takeover replaced us).
+  /// Reconciles a SUCCESSFUL, worker-scoped `/sessions/me` against the local
+  /// registry (handoff §6.3 / §7).
+  ///
+  /// `/sessions/me` is authoritative for the resolved worker, so a line we
+  /// still hold a token for that the server no longer lists **is** evidence
+  /// that exact line ended — but ONLY once we have positively seen that line
+  /// in a prior `/sessions/me`. A line that `start-batch` just created
+  /// (201 + token) can be momentarily absent because of read-after-write lag;
+  /// dropping it then is the multi-line login-loop bug (handoff §6.5). So we
+  /// confirm a line the first time the server reports it active, and drop
+  /// only confirmed-then-absent lines. Not-yet-confirmed lines are left
+  /// intact and reconciled on the next refresh.
   Future<void> _reconcileRegistry(RollWorkerMe me) async {
     final MultiLineSessionRegistryState registry = ref.read(
       multiLineSessionRegistryProvider,
     );
     if (registry is! RegistryActive) return;
+
     final Set<int> remote = me.shiftLineIds;
     final Set<int> local = registry.sessions.keys.toSet();
-    final Set<int> cascaded = local.difference(remote);
+
+    // Positively confirm every held line the worker-scoped response reports
+    // ACTIVE, and forget confirmation for ids we no longer hold a token for.
+    _confirmedLineIds
+      ..addAll(remote.intersection(local))
+      ..removeWhere((int id) => !local.contains(id));
+
+    // Drop ONLY lines we have confirmed before AND that this authoritative
+    // response now omits. A not-yet-confirmed line (just created, possibly
+    // lagging) is never dropped here; a line we don't hold a token for is
+    // not ours to manage.
+    final Set<int> cascaded = local
+        .intersection(_confirmedLineIds)
+        .difference(remote);
     if (cascaded.isEmpty) return;
+
     refreshLog(
-      'sessions-me cascade detected → dropping ${cascaded.length} line(s) '
-      '[${cascaded.join(', ')}]',
+      'sessions-me confirmed line(s) ended → dropping ${cascaded.length} '
+      'line(s) [${cascaded.join(', ')}]',
     );
     for (final int id in cascaded) {
+      _confirmedLineIds.remove(id);
       await ref
           .read(multiLineSessionRegistryProvider.notifier)
           .notifySessionLost(id);
     }
-  }
-
-  Future<void> _evictAllTokensAndNotify() async {
-    final MultiLineSessionRegistryState registry = ref.read(
-      multiLineSessionRegistryProvider,
-    );
-    if (registry is! RegistryActive) {
-      state = const SessionsMeIdle();
-      return;
-    }
-    refreshLog('sessions-me 401 → evicting all tokens, routing to picker');
-    final Set<int> ids = registry.sessions.keys.toSet();
-    await _tokenStorage.clearAllSessionTokens(ids);
-    for (final int id in ids) {
-      await ref
-          .read(multiLineSessionRegistryProvider.notifier)
-          .notifySessionLost(id);
-    }
-    state = const SessionsMeIdle();
   }
 
   // ─── Fallback poll ──────────────────────────────────────────────────────

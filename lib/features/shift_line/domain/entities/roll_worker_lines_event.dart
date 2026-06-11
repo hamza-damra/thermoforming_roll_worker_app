@@ -29,6 +29,18 @@ class PickerSseTransportError extends RollWorkerLinesStreamItem {
   final Object error;
 }
 
+/// A `urgent-manager-announcement` frame arrived — a best-effort nudge to
+/// refetch `/urgent-announcements/pending`. It is **additive and distinct**
+/// from [PickerSseRefreshTriggered]: it never triggers a bootstrap/sessions
+/// refresh. The fields are diagnostic only — the sanitized `/pending`
+/// endpoint is authoritative and carries no body/sender either.
+class PickerSseUrgentAnnouncement extends RollWorkerLinesStreamItem {
+  const PickerSseUrgentAnnouncement({this.announcementId, this.priority});
+
+  final int? announcementId;
+  final String? priority;
+}
+
 /// A `roll-worker-lines-changed` frame arrived — a plain "refresh now"
 /// trigger. The fields below are **diagnostic only** (logging / dedupe);
 /// they are never trusted as business state.
