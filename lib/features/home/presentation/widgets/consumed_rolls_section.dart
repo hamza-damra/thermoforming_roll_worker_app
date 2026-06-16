@@ -392,7 +392,9 @@ class _ExpandedBody extends StatelessWidget {
           icon: Icons.scale_outlined,
         ),
         InfoRow(
-          label: 'الوزن المستهلك',
+          // Physical roll quantity (start − end weight of THIS roll), not a
+          // per-worker kg metric — V109 removed per-worker consumption boundaries.
+          label: 'الوزن المستهلك من الرول',
           value: kg(roll.consumedWeightKg),
           icon: Icons.local_fire_department_outlined,
           valueStyle: AppTextStyles.metricValue,

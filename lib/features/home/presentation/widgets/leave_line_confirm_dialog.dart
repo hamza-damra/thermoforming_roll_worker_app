@@ -17,33 +17,50 @@ import '../../../roll_worker_auth/presentation/controllers/multi_line_session_re
 ///   * surfaces an inline error and allows retry on failure,
 ///   * pops `true` on success so the caller can show feedback.
 ///
+/// V109: logout is always a plain `/roll-worker-logout`. When a roll is mounted
+/// ([rollMounted] == true) the body reassures the worker the roll stays mounted
+/// on the line with no weight/disposition needed — it must NOT claim a handover
+/// to "the next roll worker" (the line/operator-shift context owns the roll).
+///
 /// Danger styling is reserved for the final confirm button only.
 class LeaveLineConfirmDialog extends ConsumerStatefulWidget {
   const LeaveLineConfirmDialog({
     super.key,
     required this.shiftLineId,
+    this.rollMounted = false,
     this.employeeName,
     this.lineLabel,
     this.productName,
   });
 
   final int shiftLineId;
+
+  /// Whether a roll is currently mounted on the line. Switches the body copy
+  /// to the "the roll stays mounted, no decision needed" reassurance.
+  final bool rollMounted;
   final String? employeeName;
   final String? lineLabel;
   final String? productName;
 
-  static const String title = 'تأكيد مغادرة الخط';
-  static const String body =
-      'سيتم تسجيل خروجك من هذا الخط. تأكد أنك أنهيت عملك على الرول الحالي قبل '
-      'المغادرة. المتابعة على مسؤوليتك.';
+  static const String title = 'تسجيل الخروج من الخط';
+
+  /// Shown when no roll is mounted — a plain logout, nothing to reassure about.
+  static const String bodyNoRoll = 'سيتم تسجيل خروجك من هذا الخط.';
+
+  /// Shown when a roll is mounted — V109: the roll stays mounted on the line,
+  /// no weight, no disposition. Never frames it as a handover to a next worker.
+  static const String bodyRollMounted =
+      'يوجد رول مركب حاليًا على الخط.\n\nعند تسجيل الخروج سيبقى الرول مركبًا، '
+      'ولن يتغير وزنه أو حالته. لا يلزم إدخال وزن أو اتخاذ قرار بشأن الرول.';
   static const String cancelLabel = 'إلغاء';
-  static const String confirmLabel = 'تأكيد المغادرة';
+  static const String confirmLabel = 'تسجيل الخروج';
   static const String errorMessage =
       'تعذّر تسجيل الخروج. تحقّق من الاتصال وحاول مرة أخرى.';
 
   static Future<bool?> show(
     BuildContext context, {
     required int shiftLineId,
+    bool rollMounted = false,
     String? employeeName,
     String? lineLabel,
     String? productName,
@@ -53,6 +70,7 @@ class LeaveLineConfirmDialog extends ConsumerStatefulWidget {
       barrierDismissible: false,
       builder: (_) => LeaveLineConfirmDialog(
         shiftLineId: shiftLineId,
+        rollMounted: rollMounted,
         employeeName: employeeName,
         lineLabel: lineLabel,
         productName: productName,
@@ -163,7 +181,9 @@ class _LeaveLineConfirmDialogState
               ),
               const SizedBox(height: 10),
               Text(
-                LeaveLineConfirmDialog.body,
+                widget.rollMounted
+                    ? LeaveLineConfirmDialog.bodyRollMounted
+                    : LeaveLineConfirmDialog.bodyNoRoll,
                 style: AppTextStyles.body.copyWith(
                   color: AppColors.textSecondary,
                 ),

@@ -214,7 +214,7 @@ class LabelReprintController extends FamilyNotifier<LabelReprintState, int> {
     );
     // Drop this line ONLY on the authoritative per-line end signals (handoff
     // §7) — the same three codes every other per-line controller (scan,
-    // previous-roll, summary, keep-mounted-handover) treats as "this exact
+    // previous-roll, summary) treats as "this exact
     // line ended". A reprint returning NOT_ACTIVE / NOT_FOUND for this
     // shift-line is the backend confirming the line is gone, so the registry
     // entry must be released too (it previously lingered as a zombie line).

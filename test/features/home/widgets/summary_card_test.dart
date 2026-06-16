@@ -13,93 +13,45 @@ Widget _wrap(Widget child) => MaterialApp(
 );
 
 void main() {
-  testWidgets('renders the session-scoped heading and counter', (tester) async {
-    await tester.pumpWidget(
-      _wrap(const SummaryCard(
-        completedRollsInSession: 7,
-        completedRollsByCurrentWorker: 0,
-      )),
-    );
-
-    expect(find.text('الرولات المنجزة في هذه الجلسة'), findsOneWidget);
-    expect(find.text('7'), findsOneWidget);
-  });
-
   testWidgets(
-    'hides "منك" sub-line when both counters are equal (avoid duplicate)',
+    'V109: headlines the session-scoped closed-rolls count + action subtitle',
     (tester) async {
       await tester.pumpWidget(
-        _wrap(const SummaryCard(
-          completedRollsInSession: 4,
-          completedRollsByCurrentWorker: 4,
-        )),
+        _wrap(const SummaryCard(completedRollsInSession: 7)),
       );
 
-      expect(find.text('4'), findsOneWidget);
-      expect(find.textContaining('منك'), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'shows "منك" sub-line when the two counters disagree (legacy data)',
-    (tester) async {
-      await tester.pumpWidget(
-        _wrap(const SummaryCard(
-          completedRollsInSession: 8,
-          completedRollsByCurrentWorker: 3,
-        )),
+      expect(
+        find.text('الرولات التي تم إغلاقها في هذه الجلسة'),
+        findsOneWidget,
       );
-
-      expect(find.text('8'), findsOneWidget);
-      expect(find.text('منك: 3'), findsOneWidget);
-    },
-  );
-
-  testWidgets('hides "منك" sub-line when the value is zero', (tester) async {
-    await tester.pumpWidget(
-      _wrap(const SummaryCard(
-        completedRollsInSession: 5,
-        completedRollsByCurrentWorker: 0,
-      )),
-    );
-
-    expect(find.textContaining('منك'), findsNothing);
-  });
-
-  testWidgets(
-    'V104: leads with consumed-kg headline + rolls-contributed subline',
-    (tester) async {
-      await tester.pumpWidget(
-        _wrap(const SummaryCard(
-          completedRollsInSession: 3,
-          completedRollsByCurrentWorker: 3,
-          consumedWeightKgInSession: 142.5,
-          rollsContributedInSession: 3,
-        )),
-      );
-
-      expect(find.text('المستهلك في هذه الجلسة'), findsOneWidget);
-      expect(find.text('142.5 كغ'), findsOneWidget);
-      expect(find.text('ساهمت في: 3 رولات'), findsOneWidget);
-      // The legacy completed-rolls heading is not shown when kg is present.
-      expect(find.text('الرولات المنجزة في هذه الجلسة'), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'V104: falls back to completed-rolls headline when kg is null (legacy)',
-    (tester) async {
-      await tester.pumpWidget(
-        _wrap(const SummaryCard(
-          completedRollsInSession: 7,
-          completedRollsByCurrentWorker: 0,
-          rollsContributedInSession: 0,
-        )),
-      );
-
-      expect(find.text('الرولات المنجزة في هذه الجلسة'), findsOneWidget);
       expect(find.text('7'), findsOneWidget);
-      expect(find.textContaining('المستهلك'), findsNothing);
+      expect(
+        find.text('تشمل الاستهلاك الكامل، إرجاع المتبقي، والتوصية بالجرش'),
+        findsOneWidget,
+      );
     },
   );
+
+  testWidgets('shows 0 at session start without any kg metric', (tester) async {
+    await tester.pumpWidget(
+      _wrap(const SummaryCard(completedRollsInSession: 0)),
+    );
+
+    expect(find.text('0'), findsOneWidget);
+    // V109: never present a fabricated per-worker kg figure.
+    expect(find.textContaining('كغ'), findsNothing);
+    expect(find.textContaining('المستهلك'), findsNothing);
+    // No personal-productivity attribution.
+    expect(find.textContaining('منك'), findsNothing);
+    expect(find.textContaining('ساهمت'), findsNothing);
+  });
+
+  testWidgets('shows an inline spinner while refreshing', (tester) async {
+    await tester.pumpWidget(
+      _wrap(const SummaryCard(completedRollsInSession: 3, isRefreshing: true)),
+    );
+
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+  });
 }

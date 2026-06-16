@@ -10,14 +10,6 @@ enum ErrorCode {
   operatorPinInvalid('OPERATOR_PIN_INVALID'),
   operatorPinLocked('OPERATOR_PIN_LOCKED'),
 
-  /// V104 takeover: returned by login/session-start (single-line auth or
-  /// batch) when a *different* worker enters a line whose previous worker left
-  /// a mounted roll unresolved. `details` carries `shiftLineId`,
-  /// `previousWorkerName`, `previousWorkerOperatorId`, `lastKnownWeightKg`,
-  /// `generatedRollId`. The UI opens the takeover screen on this code — never a
-  /// generic error.
-  rollWorkerTakeoverRequired('ROLL_WORKER_TAKEOVER_REQUIRED'),
-
   /// Multi-line batch-start lockout. Wire-distinct from
   /// [operatorPinLocked]; UI maps both to the same Arabic locked message.
   operatorLocked('OPERATOR_LOCKED'),

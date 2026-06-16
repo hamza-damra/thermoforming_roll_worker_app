@@ -149,6 +149,7 @@ ShiftLineSummary _summary({
   List<AllowedRoll> allowedRolls = const <AllowedRoll>[],
   List<ConsumedRoll> consumedRolls = const <ConsumedRoll>[],
   String? activeOperatorName = 'مشغل التشكيل',
+  SummaryMountedRoll? mountedRoll,
 }) => ShiftLineSummary(
   shiftLineId: _kShiftLineId,
   thermoformingLineCode: 'TH-01',
@@ -158,6 +159,16 @@ ShiftLineSummary _summary({
   activeOperatorName: activeOperatorName,
   allowedRolls: allowedRolls,
   consumedRolls: consumedRolls,
+  mountedRoll: mountedRoll,
+);
+
+const SummaryMountedRoll _mountedRoll = SummaryMountedRoll(
+  consumptionItemId: 555,
+  rollId: 12345,
+  generatedRollId: '001000000999',
+  rollTypeCode: 'TP-6',
+  rollTypeName: 'زبدية',
+  lastKnownWeightKg: 180.0,
 );
 
 ProviderContainer _makeContainer({
@@ -361,7 +372,7 @@ void main() {
 
     expect(find.byType(LeaveLineConfirmDialog), findsOneWidget);
     expect(find.text(LeaveLineConfirmDialog.title), findsOneWidget);
-    expect(find.text(LeaveLineConfirmDialog.body), findsOneWidget);
+    expect(find.text(LeaveLineConfirmDialog.bodyNoRoll), findsOneWidget);
     expect(find.text(LeaveLineConfirmDialog.confirmLabel), findsOneWidget);
     expect(find.text(LeaveLineConfirmDialog.cancelLabel), findsOneWidget);
   });
@@ -436,4 +447,74 @@ void main() {
     expect(find.byType(LeaveLineConfirmDialog), findsOneWidget);
     expect(find.text(LeaveLineConfirmDialog.errorMessage), findsOneWidget);
   });
+
+  testWidgets(
+    'V109: leaving with a roll mounted is a plain logout — '
+    'stays-mounted copy, no weight prompt, no disposition',
+    (WidgetTester tester) async {
+      _useTallSurface(tester);
+      final _MockAuthRepo auth = _MockAuthRepo();
+      when(() => auth.clearStoredToken(any())).thenAnswer((_) async {});
+      when(() => auth.logout(_kShiftLineId)).thenAnswer((_) async {});
+
+      final ProviderContainer container = _makeContainer(
+        summary: _summary(mountedRoll: _mountedRoll),
+        registry: _active(<int>{_kShiftLineId}),
+        authRepo: auth,
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_wrap(container));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(RollWorkerSessionCard.leaveLabel));
+      await tester.pumpAndSettle();
+
+      // The confirm dialog opens directly (no 4-option logout decision sheet)
+      // and reassures the worker the roll stays mounted — no weight, no choice.
+      expect(find.byType(LeaveLineConfirmDialog), findsOneWidget);
+      expect(find.text(LeaveLineConfirmDialog.bodyRollMounted), findsOneWidget);
+      // No weight-entry field anywhere in the leave flow.
+      expect(
+        find.descendant(
+          of: find.byType(LeaveLineConfirmDialog),
+          matching: find.byType(TextField),
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(find.text(LeaveLineConfirmDialog.confirmLabel));
+      await tester.pumpAndSettle();
+
+      // Exactly one plain /roll-worker-logout; the roll is left untouched.
+      verify(() => auth.logout(_kShiftLineId)).called(1);
+      expect(find.text('تم تسجيل خروجك من الخط'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'V109: full-consume / return / grinding stay reachable during the shift '
+    'via the close action (independent of logout / worker replacement)',
+    (WidgetTester tester) async {
+      _useTallSurface(tester);
+      final ProviderContainer container = _makeContainer(
+        summary: _summary(mountedRoll: _mountedRoll),
+        registry: _active(<int>{_kShiftLineId}),
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_wrap(container));
+      await tester.pumpAndSettle();
+
+      // The bottom action closes the mounted roll.
+      expect(find.text(RollWorkerHomeScreen.closeCurrentRoll), findsOneWidget);
+      await tester.tap(find.text(RollWorkerHomeScreen.closeCurrentRoll));
+      await tester.pumpAndSettle();
+
+      // All three preserved dispositions are offered.
+      expect(find.text('استهلاك كامل'), findsOneWidget);
+      expect(find.text('إرجاع المتبقي'), findsOneWidget);
+      expect(find.text('إرسال المتبقي للجرش'), findsOneWidget);
+    },
+  );
 }

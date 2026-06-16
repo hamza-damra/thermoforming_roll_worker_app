@@ -4,7 +4,6 @@ import '../../../core/errors/error_code.dart';
 import '../../../core/storage/secure_token_storage.dart';
 import '../domain/previous_roll_repository.dart';
 import 'dto/previous_roll_resolution_response.dart';
-import 'dto/roll_worker_handover_response.dart';
 import 'previous_roll_api.dart';
 
 class PreviousRollRepositoryImpl implements PreviousRollRepository {
@@ -54,43 +53,6 @@ class PreviousRollRepositoryImpl implements PreviousRollRepository {
         sessionToken: token,
       ),
     );
-  }
-
-  @override
-  Future<KeepMountedResult> keepMountedHandover({
-    required int shiftLineId,
-    required double remainingWeightKg,
-  }) async {
-    final String? token = await _storage.readSessionToken(shiftLineId);
-    if (token == null || token.isEmpty) {
-      return const KeepMountedFailure(
-        BusinessFailure(code: ErrorCode.rollWorkerSessionRequired),
-      );
-    }
-    try {
-      final RollWorkerHandoverResponse dto = await _api.keepMountedHandover(
-        shiftLineId: shiftLineId,
-        remainingWeightKg: remainingWeightKg,
-        sessionToken: token,
-      );
-      // The call ends the worker's session — the stored token is now invalid.
-      await _storage.clearSessionToken(shiftLineId);
-      return KeepMountedSuccess(dto);
-    } catch (error, stack) {
-      final AppFailure failure = ApiErrorParser.parse(error, stack);
-      // Cascade-on-end / session-loss invalidates the locally stored token.
-      if (failure is BusinessFailure) {
-        switch (failure.code) {
-          case ErrorCode.rollWorkerSessionRequired:
-          case ErrorCode.thermoformingShiftLineNotActive:
-          case ErrorCode.thermoformingShiftLineNotFound:
-            await _storage.clearSessionToken(shiftLineId);
-          default:
-            break;
-        }
-      }
-      return KeepMountedFailure(failure);
-    }
   }
 
   Future<PreviousRollResult> _send({

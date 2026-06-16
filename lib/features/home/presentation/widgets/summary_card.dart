@@ -6,75 +6,46 @@ import '../../../../core/widgets/session_stat_tile.dart';
 
 /// Session summary card.
 ///
-/// V104: the headline is the worker's **consumed kilograms**
-/// ([consumedWeightKgInSession]) with rolls-contributed
-/// ([rollsContributedInSession]) as the sub-line. On legacy backends that omit
-/// the kg field ([consumedWeightKgInSession] == null) it falls back to the
-/// completed-rolls count headline.
+/// V109: per-worker kilograms can no longer be computed (inter-worker weight
+/// boundaries were removed; `consumedWeightKgInSession` / `rollsContributedInSession`
+/// now return 0/null for new sessions). We therefore never display a fabricated
+/// per-worker kg. Instead the headline is the session-scoped **closed-rolls
+/// count** ([completedRollsInSession]) — the number of rolls closed during this
+/// roll-worker session (it resets to 0 on each new login to the line). A roll
+/// closed via full consumption, partial return, or grinding each counts once.
 ///
-/// [completedRollsByCurrentWorker] is kept on the wire for contract
-/// continuity; the "منك: N" sub-line is hidden when it equals
-/// [completedRollsInSession]. [isRefreshing] drives a small inline spinner
-/// while a background re-fetch is in flight — the card stays visible with the
-/// last good data.
+/// This is a session activity count, not a personal-productivity kg metric.
+/// [isRefreshing] drives a small inline spinner while a background re-fetch is
+/// in flight — the card stays visible with the last good data.
 class SummaryCard extends StatelessWidget {
   const SummaryCard({
     super.key,
     required this.completedRollsInSession,
-    required this.completedRollsByCurrentWorker,
-    this.consumedWeightKgInSession,
-    this.rollsContributedInSession = 0,
     this.isRefreshing = false,
     this.accent,
   });
 
   final int completedRollsInSession;
-  final int completedRollsByCurrentWorker;
-  final double? consumedWeightKgInSession;
-  final int rollsContributedInSession;
   final bool isRefreshing;
   final Color? accent;
 
-  static const String consumedLabel = 'المستهلك في هذه الجلسة';
-  static const String completedLabel = 'الرولات المنجزة في هذه الجلسة';
+  static const String label = 'الرولات التي تم إغلاقها في هذه الجلسة';
+  static const String subtitle =
+      'تشمل الاستهلاك الكامل، إرجاع المتبقي، والتوصية بالجرش';
 
   @override
   Widget build(BuildContext context) {
     final Color color = accent ?? AppColors.primary;
-
-    final IconData icon;
-    final String label;
-    final String value;
-    final String? subline;
-    final double? consumed = consumedWeightKgInSession;
-    if (consumed != null) {
-      // V104 primary metric: consumed kg, with rolls-contributed secondary.
-      icon = Icons.scale_rounded;
-      label = consumedLabel;
-      value = '${consumed.toStringAsFixed(1)} كغ';
-      subline = 'ساهمت في: $rollsContributedInSession رولات';
-    } else {
-      // Legacy fallback: completed-rolls count headline.
-      icon = Icons.local_shipping_rounded;
-      label = completedLabel;
-      value = '$completedRollsInSession';
-      final bool showByCurrentWorker =
-          completedRollsByCurrentWorker > 0 &&
-          completedRollsByCurrentWorker != completedRollsInSession;
-      subline = showByCurrentWorker
-          ? 'منك: $completedRollsByCurrentWorker'
-          : null;
-    }
 
     return AppCard(
       elevated: true,
       accent: color,
       borderRadius: 18,
       child: SessionStatTile(
-        icon: icon,
+        icon: Icons.archive_outlined,
         label: label,
-        value: value,
-        subline: subline,
+        value: '$completedRollsInSession',
+        subline: subtitle,
         accent: color,
         trailing: isRefreshing
             ? const SizedBox(

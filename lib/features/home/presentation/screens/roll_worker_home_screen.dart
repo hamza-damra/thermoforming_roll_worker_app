@@ -20,9 +20,7 @@ import '../../../previous_roll/presentation/controllers/previous_roll_resolution
 import '../../../previous_roll/presentation/widgets/close_previous_roll_dialog.dart';
 import '../../../previous_roll/presentation/widgets/full_consume_confirm_dialog.dart';
 import '../../../previous_roll/presentation/widgets/grinding_dialog.dart';
-import '../../../previous_roll/presentation/widgets/keep_mounted_handover_dialog.dart';
 import '../../../previous_roll/presentation/widgets/return_remaining_dialog.dart';
-import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../../printer/data/printer_providers.dart';
 import '../../../printer/domain/entities/printer_config.dart';
 import '../../../printer/presentation/screens/printer_settings_screen.dart';
@@ -44,7 +42,6 @@ import '../widgets/compact_mounted_roll_card.dart';
 import '../widgets/consumed_rolls_section.dart';
 import '../widgets/home_shimmer_skeleton.dart';
 import '../widgets/leave_line_confirm_dialog.dart';
-import '../widgets/logout_decision_sheet.dart';
 import '../widgets/product_allowed_rolls_card.dart';
 import '../widgets/returned_remaining_card.dart';
 import '../widgets/roll_worker_session_card.dart';
@@ -139,13 +136,6 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
   /// Request id of the last takeover we played the sound/vibration alert for.
   /// Guards against replaying the alert on every summary refresh / SSE event.
   int? _alertedTakeoverRequestId;
-
-  /// One-shot guard set by the logout flow (options 2–4) so the post-close
-  /// auto-print here is skipped — the logout flow prints the remainder label
-  /// itself (awaited) BEFORE logging out, otherwise logout would clear the
-  /// per-line token mid-reprint-fetch. Reset as soon as the resolved event is
-  /// observed.
-  bool _suppressAutoPrintOnce = false;
 
   /// Reacts to a refreshed summary: when a *new* `PENDING` takeover appears,
   /// play the alert once and open the blocking dialog. Runs from a
@@ -461,122 +451,23 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
         : (inferredType.isEmpty ? null : inferredType);
   }
 
-  /// Leave action from the worker-session card. When a roll is mounted (V104),
-  /// shows the 4-option decision sheet; otherwise the plain leave confirm.
+  /// Leave action from the worker-session card. V109: logging out is always a
+  /// plain `/roll-worker-logout` — the mounted roll (if any) stays mounted on
+  /// the line for the next worker/operator, with no weight prompt and no
+  /// disposition decision. The confirm copy adapts to whether a roll is mounted.
   Future<void> _openLeaveDialog(String? employeeName) async {
-    final SummaryMountedRoll? mountedRoll = _currentSummary()?.mountedRoll;
-    if (mountedRoll == null) {
-      final bool? left = await LeaveLineConfirmDialog.show(
-        context,
-        shiftLineId: _shiftLineId,
-        employeeName: employeeName,
-        lineLabel: _lineLabel,
-        productName: _currentProductName(),
-      );
-      if (left == true && mounted) {
-        SuccessSnackbar.show(context, RollWorkerHomeScreen._leftLineSnack);
-      }
-      return;
-    }
-
-    final LogoutDecision? decision = await showLogoutDecisionSheet(
-      context,
-      accent: widget.accentColor,
-    );
-    if (decision == null || !mounted) return;
-
-    switch (decision) {
-      case LogoutDecision.keepMounted:
-        await _keepMountedHandover(mountedRoll);
-      case LogoutDecision.fullConsume:
-        await _resolveThenLeave(
-          () => showFullConsumeConfirmDialog(
-            context,
-            shiftLineId: _shiftLineId,
-            accent: widget.accentColor,
-          ),
-        );
-      case LogoutDecision.returnRemaining:
-        await _resolveThenLeave(
-          () => showReturnRemainingDialog(
-            context,
-            shiftLineId: _shiftLineId,
-            maxAllowedKg: mountedRoll.lastKnownWeightKg,
-            accent: widget.accentColor,
-          ),
-        );
-      case LogoutDecision.grinding:
-        await _resolveThenLeave(
-          () => showGrindingDialog(
-            context,
-            shiftLineId: _shiftLineId,
-            maxAllowedKg: mountedRoll.lastKnownWeightKg,
-            accent: widget.accentColor,
-          ),
-        );
-    }
-  }
-
-  /// Logout option 1: declare the remaining weight, keep the roll mounted for
-  /// the next worker, and end the session in one call. On success the local
-  /// session is dropped (no roll-worker-logout call) and the tab flips to the
-  /// PIN overlay.
-  Future<void> _keepMountedHandover(SummaryMountedRoll mountedRoll) async {
-    final response = await showKeepMountedHandoverDialog(
+    final bool rollMounted = _currentSummary()?.mountedRoll != null;
+    final bool? left = await LeaveLineConfirmDialog.show(
       context,
       shiftLineId: _shiftLineId,
-      currentWeightKg: mountedRoll.lastKnownWeightKg,
-      accent: widget.accentColor,
+      rollMounted: rollMounted,
+      employeeName: employeeName,
+      lineLabel: _lineLabel,
+      productName: _currentProductName(),
     );
-    if (response == null || !mounted) return;
-    final double? consumed = response.consumedWeightKg;
-    final String consumedText = consumed != null
-        ? consumed.toStringAsFixed(3)
-        : '—';
-    // Show feedback BEFORE dropping the session so the root ScaffoldMessenger
-    // (above the tabs) keeps the snackbar visible as the tab flips to PIN.
-    SuccessSnackbar.show(
-      context,
-      'تم تسجيل استهلاكك ($consumedText كغ). الرول ما زال مركب للموظف التالي.',
-    );
-    await ref
-        .read(multiLineSessionRegistryProvider.notifier)
-        .markSessionEndedLocally(_shiftLineId);
-  }
-
-  /// Logout options 2–4: run the resolution, print the remainder label (when
-  /// applicable) BEFORE logging out so the per-line token stays valid for the
-  /// reprint fetch, then log out and return to the PIN overlay.
-  Future<void> _resolveThenLeave(
-    Future<PreviousRollResolution?> Function() runResolution,
-  ) async {
-    // Suppress the home auto-print for this resolution — we print it ourselves
-    // (awaited) below so the token survives the reprint fetch.
-    _suppressAutoPrintOnce = true;
-    final PreviousRollResolution? res = await runResolution();
-    if (res == null) {
-      // Cancelled — no resolution happened, so the listener never fired; undo
-      // the one-shot suppression.
-      _suppressAutoPrintOnce = false;
-      return;
+    if (left == true && mounted) {
+      SuccessSnackbar.show(context, RollWorkerHomeScreen._leftLineSnack);
     }
-    if (!mounted) return;
-    // Print the remainder label first (RETURN / GRINDING). full-consume has
-    // reprintAvailable == false, so this is skipped there.
-    if (res.reprintAvailable) {
-      await _onReprintTap(
-        context,
-        res.generatedRollId,
-        overrideTimestamp: res.labelTimestamp,
-        labelType: _resolveLabelType(res),
-      );
-      if (!mounted) return;
-    }
-    await ref
-        .read(multiLineSessionRegistryProvider.notifier)
-        .logout(_shiftLineId);
-    if (!mounted) return;
-    SuccessSnackbar.show(context, RollWorkerHomeScreen._leftLineSnack);
   }
 
   @override
@@ -628,11 +519,6 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
       previousRollResolutionControllerProvider(_shiftLineId),
       (prev, next) {
         if (next is PreviousRollResolved && prev is! PreviousRollResolved) {
-          // Consume the one-shot logout-flow suppression: when set, the logout
-          // flow owns the remainder print (awaited before logout), so skip the
-          // auto-print here to avoid a double print.
-          final bool suppressAutoPrint = _suppressAutoPrintOnce;
-          _suppressAutoPrintOnce = false;
           // Non-blocking success feedback: refresh the summary so the
           // closed roll lands in the consumed-rolls list (where the worker
           // can reprint when RETURN/GRINDING), show a brief snackbar, and
@@ -654,7 +540,7 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
           // BuildContext. The print pipeline itself is fire-and-forget —
           // the close already succeeded; a print failure surfaces as a
           // retry on the consumed-roll card.
-          if (next.resolution.reprintAvailable && !suppressAutoPrint) {
+          if (next.resolution.reprintAvailable) {
             final PreviousRollResolution res = next.resolution;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
@@ -766,9 +652,6 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
         //    so the history never dominates the first screen.
         SummaryCard(
           completedRollsInSession: summary.completedRollsInSession,
-          completedRollsByCurrentWorker: summary.completedRollsByCurrentWorker,
-          consumedWeightKgInSession: summary.consumedWeightKgInSession,
-          rollsContributedInSession: summary.rollsContributedInSession,
           isRefreshing: isRefreshing,
           accent: widget.accentColor,
         ),

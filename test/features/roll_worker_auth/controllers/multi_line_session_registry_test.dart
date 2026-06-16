@@ -20,11 +20,17 @@ class _MockIndexRaw extends Mock implements FlutterSecureStorage {}
 
 class _MockSessionsMeRepo extends Mock implements SessionsMeRepository {}
 
-RollWorkerSession _session(int shiftLineId, {String? status = 'ACTIVE'}) =>
+RollWorkerSession _session(
+  int shiftLineId, {
+  String? status = 'ACTIVE',
+  int rollWorkerOperatorId = 77,
+  String rollWorkerName = 'Yusuf',
+  int sessionId = 0,
+}) =>
     RollWorkerSession(
-      sessionId: shiftLineId,
-      rollWorkerOperatorId: 77,
-      rollWorkerName: 'Yusuf',
+      sessionId: sessionId == 0 ? shiftLineId : sessionId,
+      rollWorkerOperatorId: rollWorkerOperatorId,
+      rollWorkerName: rollWorkerName,
       thermoformingShiftId: 9001,
       thermoformingShiftLineId: shiftLineId,
       thermoformingLineId: shiftLineId + 100,
@@ -237,6 +243,61 @@ void main() {
           reason: 'merging a new line must not steal the active pointer',
         );
         expect(state.lastEvent, isA<BatchAdded>());
+      },
+    );
+
+    test(
+      'V109: a DIFFERENT worker re-authenticating on an already-active line '
+      'REPLACES that line\'s session, keeps other lines, preserves the pointer',
+      () async {
+        final auth = _MockAuthRepo();
+        final raw = _MockIndexRaw();
+        when(
+          () => raw.read(key: any<String>(named: 'key')),
+        ).thenAnswer((_) async => null);
+        when(
+          () => raw.write(
+            key: any<String>(named: 'key'),
+            value: any<String>(named: 'value'),
+          ),
+        ).thenAnswer((_) async {});
+        final container = _container(
+          auth: auth,
+          index: SessionIndexStorage.withStorage(raw),
+        );
+        final notifier = container.read(
+          multiLineSessionRegistryProvider.notifier,
+        );
+
+        // Worker "Yusuf" active on lines 81 and 82; 81 is the active pointer.
+        await notifier.onBatchSuccess(<int, RollWorkerSession>{
+          81: _session(81),
+          82: _session(82),
+        });
+
+        // A DIFFERENT worker ("Layla") logs into line 82 while it already has a
+        // mounted roll. V109: the previous ACTIVE session on 82 is REPLACED.
+        await notifier.onBatchSuccess(<int, RollWorkerSession>{
+          82: _session(
+            82,
+            rollWorkerOperatorId: 99,
+            rollWorkerName: 'Layla',
+            sessionId: 8200,
+          ),
+        });
+
+        final state =
+            container.read(multiLineSessionRegistryProvider) as RegistryActive;
+        // No line dropped, none duplicated.
+        expect(state.sessions.keys.toSet(), <int>{81, 82});
+        // Line 82's session is now the new worker's (replaced, not appended).
+        expect(state.sessions[82]!.rollWorkerOperatorId, 99);
+        expect(state.sessions[82]!.rollWorkerName, 'Layla');
+        expect(state.sessions[82]!.sessionId, 8200);
+        // Line 81 (the other worker session) is untouched.
+        expect(state.sessions[81]!.rollWorkerOperatorId, 77);
+        // Active pointer preserved.
+        expect(state.activeShiftLineId, 81);
       },
     );
   });

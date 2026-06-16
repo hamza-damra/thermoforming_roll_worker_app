@@ -257,12 +257,12 @@ class ShiftLineSummaryResponse {
   final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
 
-  /// PRIMARY worker metric (V104): kg this session's worker consumed. `null`
-  /// on legacy backends that predate the field.
+  /// DEPRECATED (V109): per-worker kg is no longer computed (returns `0`/`null`
+  /// for new sessions). Parsed for wire continuity but not displayed.
   final double? consumedWeightKgInSession;
 
-  /// SECONDARY metric (V104): distinct rolls this worker consumed > 0. `0` when
-  /// absent on legacy data.
+  /// DEPRECATED (V109): distinct rolls this worker consumed > 0 — no longer
+  /// computed (returns `0`). Parsed for wire continuity but not displayed.
   final int rollsContributedInSession;
   final List<ConsumedRollResponse> consumedRolls;
   final List<AllowedRollResponse> allowedRolls;

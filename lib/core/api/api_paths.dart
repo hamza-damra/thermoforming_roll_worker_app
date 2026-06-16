@@ -39,15 +39,11 @@ class ApiPaths {
   /// below is retained for backward compatibility only.
   static const String sessionsStartBatch = '$_rollAppBase/sessions/start-batch';
 
-  /// `POST {base}/sessions/takeover-with-roll-declaration`.
-  /// Headers: X-Device-Key only (NO X-Session-Token — the incoming worker is
-  /// not authenticated yet; the PIN is in the body). Body:
-  /// `{ shiftLineId, incomingOperatorPin, action, currentWeightKg?,
-  /// clientRequestId }`. Idempotent on `clientRequestId`. Resolves an
-  /// abandoned mounted roll (crediting the previous worker) and claims the line
-  /// for the incoming worker.
-  static const String sessionsTakeoverWithRollDeclaration =
-      '$_rollAppBase/sessions/takeover-with-roll-declaration';
+  // V109: the login-time takeover endpoint
+  // (`POST /sessions/takeover-with-roll-declaration`) is intentionally NOT
+  // declared here. Mounted-roll ownership moved to the line/operator-shift
+  // context; login while a roll is mounted now succeeds on the normal
+  // start-batch path, so the app never invokes the takeover endpoint.
 
   /// `GET {base}/sessions/me`.
   /// Headers: X-Device-Key + X-Session-Token (any of the worker's tokens).
@@ -101,15 +97,6 @@ class ApiPaths {
   /// `POST {base}/shift-lines/{shiftLineId}/previous-roll/full-consume`.
   static String previousRollFullConsume(int shiftLineId) =>
       '$_rollAppBase/shift-lines/$shiftLineId/previous-roll/full-consume';
-
-  /// `POST {base}/shift-lines/{shiftLineId}/previous-roll/keep-mounted-handover`.
-  /// Body: `{ "remainingWeightKg": <num> }`. V104 keep-mounted handover: the
-  /// current worker declares the remaining weight (credited their consumed
-  /// interval), the roll stays mounted for the next worker, and **this call
-  /// ends the current worker's session** — do NOT call roll-worker-logout
-  /// afterwards.
-  static String previousRollKeepMountedHandover(int shiftLineId) =>
-      '$_rollAppBase/shift-lines/$shiftLineId/previous-roll/keep-mounted-handover';
 
   /// `POST {base}/shift-lines/{shiftLineId}/previous-roll/return`.
   /// Body: `{ "remainingWeightKg": <num> }`.

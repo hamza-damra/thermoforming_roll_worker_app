@@ -81,10 +81,15 @@ void main() {
 
       // App bar shows line label (خط أ) instead of TH code or machine label.
       expect(find.text('خط أ'), findsOneWidget);
-      // Summary card shows completed count.
+      // V109 summary card: session-scoped closed-rolls count + action subtitle
+      // (never a fabricated per-worker kg or "منك" personal attribution).
       expect(find.text('8'), findsOneWidget);
-      // "منك: 3" subline is shown when completedRollsByCurrentWorker > 0.
-      expect(find.text('منك: 3'), findsOneWidget);
+      expect(
+        find.text('الرولات التي تم إغلاقها في هذه الجلسة'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('منك'), findsNothing);
+      expect(find.textContaining('كغ'), findsNothing);
       // Fixed register CTA is visible when no roll is mounted.
       expect(find.text(RollWorkerHomeScreen.registerRoll), findsOneWidget);
       // Empty mounted-roll card (message + helper).

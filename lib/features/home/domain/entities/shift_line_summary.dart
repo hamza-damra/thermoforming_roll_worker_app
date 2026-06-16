@@ -261,13 +261,15 @@ class ShiftLineSummary {
   /// worker. The UI may hide the "منك" sub-line when both are equal.
   final int completedRollsByCurrentWorker;
 
-  /// PRIMARY worker-productivity metric (V104): kilograms this session's worker
-  /// personally consumed. `null` on legacy backends predating the field — the
-  /// UI falls back to the completed-rolls count as the headline in that case.
+  /// DEPRECATED (V109): per-worker kg can no longer be computed — inter-worker
+  /// weight boundaries were removed, so the backend returns `0`/`null` for new
+  /// sessions (historical pre-V109 data is unchanged). Parsed for wire/contract
+  /// continuity but NO LONGER DISPLAYED — the UI never shows a fabricated
+  /// per-worker kg; it headlines [completedRollsInSession] instead.
   final double? consumedWeightKgInSession;
 
-  /// SECONDARY metric (V104): distinct rolls this worker consumed > 0. `0` when
-  /// absent on legacy data.
+  /// DEPRECATED (V109): see [consumedWeightKgInSession]. Returns `0` for new
+  /// sessions; parsed for contract continuity but not displayed.
   final int rollsContributedInSession;
 
   /// Latest closed rolls in the current session, newest-first, capped at 10

@@ -50,6 +50,25 @@ void main() {
     test('fromWire is case-sensitive (matches backend exactly)', () {
       expect(ErrorCode.fromWire('roll_worker_not_allowed'), ErrorCode.unknown);
     });
+
+    test(
+      'V109 cutover: ROLL_WORKER_TAKEOVER_REQUIRED is removed → unknown '
+      '(login while a roll is mounted no longer triggers a takeover screen)',
+      () {
+        expect(
+          ErrorCode.fromWire('ROLL_WORKER_TAKEOVER_REQUIRED'),
+          ErrorCode.unknown,
+        );
+        // Should it ever surface transiently, it maps to the generic retry
+        // message — never resurrects a takeover-specific string.
+        expect(
+          arabicMessageFor(
+            const BusinessFailure(code: ErrorCode.unknown),
+          ),
+          genericRetryArabic,
+        );
+      },
+    );
   });
 
   group('arabicMessageFor', () {
