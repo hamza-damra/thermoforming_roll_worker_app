@@ -402,6 +402,7 @@ void main() {
               ErrorCode.rollSentToGrindingNotReusable,
           'rollNotFound': ErrorCode.rollNotFound,
           'productionPlanItemRequired': ErrorCode.productionPlanItemRequired,
+          'rollReconciledOutOfStock': ErrorCode.rollReconciledOutOfStock,
         };
 
         for (final MapEntry<String, ErrorCode> entry in codes.entries) {

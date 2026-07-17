@@ -15,6 +15,7 @@ import '../widgets/curing_max_warning_dialog.dart';
 import '../widgets/curing_min_violation_dialog.dart';
 import '../widgets/manual_roll_input_dialog.dart';
 import '../widgets/qr_scanner_view.dart';
+import '../widgets/roll_scan_blocked_dialog.dart';
 
 /// Full-screen scan/mount flow. Camera-first; falls back to manual entry
 /// per requirements §9.
@@ -41,6 +42,23 @@ class ScanRollScreen extends ConsumerStatefulWidget {
 
   static const String curingMaxWarningCode = 'ROLL_CURING_MAXIMUM_EXCEEDED';
 
+  /// Maps a business code to the blocked-roll dialog kind, or null when the
+  /// failure should fall through to the inline error.
+  ///
+  /// Note the `_ => null` arm: a code missing from this switch silently falls
+  /// through to the inline-error + camera-re-arm retry path — it compiles and
+  /// passes every other test. Every code that is terminal for mounting must be
+  /// listed here, and covered by the table test in `scan_roll_screen_test.dart`.
+  @visibleForTesting
+  static RollScanBlockedKind? blockedKindFor(ErrorCode code) => switch (code) {
+    ErrorCode.rollSentToGrindingNotReusable => RollScanBlockedKind.grinding,
+    ErrorCode.rollAlreadyConsumed => RollScanBlockedKind.consumed,
+    ErrorCode.rollAdminCancelled => RollScanBlockedKind.adminCancelled,
+    ErrorCode.rollReconciledOutOfStock =>
+      RollScanBlockedKind.reconciledOutOfStock,
+    _ => null,
+  };
+
   @override
   ConsumerState<ScanRollScreen> createState() => _ScanRollScreenState();
 }
@@ -49,6 +67,10 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
   /// Force-rebuilds the scanner view (and re-creates the controller) after
   /// a failed attempt so the camera resumes for the next scan.
   int _scannerKey = 0;
+
+  /// The most recently attempted roll number (scanned or typed). Surfaced in
+  /// the curing-violation dialog when `error.details` omits the roll id.
+  String? _lastScannedCode;
 
   void _resetScanner() {
     setState(() => _scannerKey++);
@@ -60,12 +82,14 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
       accent: widget.accentColor,
     );
     if (code == null || !mounted) return;
+    _lastScannedCode = code;
     await ref
         .read(rollScanControllerProvider(widget.shiftLineId).notifier)
         .mountRoll(code);
   }
 
   Future<void> _onCodeScanned(String code) async {
+    _lastScannedCode = code;
     await ref
         .read(rollScanControllerProvider(widget.shiftLineId).notifier)
         .mountRoll(code);
@@ -92,17 +116,35 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
 
   Future<void> _handleFailure(RollScanFailureState next) async {
     final AppFailure failure = next.failure;
-    if (failure is BusinessFailure &&
-        failure.code == ErrorCode.rollCuringMinimumNotMet) {
-      // Re-arm the camera under the dialog so the worker can scan a
-      // different roll after acknowledging.
-      _resetScanner();
-      await showCuringMinViolationDialog(
-        context,
-        failure: failure,
-        accent: widget.accentColor,
+    if (failure is BusinessFailure) {
+      if (failure.code == ErrorCode.rollCuringMinimumNotMet) {
+        // Re-arm the camera under the dialog so the worker can scan a
+        // different roll after acknowledging.
+        _resetScanner();
+        await showCuringMinViolationDialog(
+          context,
+          failure: failure,
+          accent: widget.accentColor,
+          rollNumber: _lastScannedCode,
+        );
+        return;
+      }
+      // Terminally-blocked rolls (grinding-recommended / consumed /
+      // admin-cancelled / reconciled-out-of-inventory) get a rich modal built
+      // from `error.details` instead of the generic inline error.
+      final RollScanBlockedKind? blockedKind = ScanRollScreen.blockedKindFor(
+        failure.code,
       );
-      return;
+      if (blockedKind != null) {
+        _resetScanner();
+        await showRollScanBlockedDialog(
+          context,
+          kind: blockedKind,
+          failure: failure,
+          accent: widget.accentColor,
+        );
+        return;
+      }
     }
     // Default failure path: inline error + re-open camera for retry.
     _resetScanner();
@@ -159,7 +201,7 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
                   ),
           ),
           if (scanState is RollScanFailureState &&
-              !_isCuringMinFailure(scanState.failure))
+              !_isHandledByDialog(scanState.failure))
             Padding(
               padding: const EdgeInsets.all(16),
               child: AppCard(
@@ -184,9 +226,12 @@ class _ScanRollScreenState extends ConsumerState<ScanRollScreen> {
     );
   }
 
-  static bool _isCuringMinFailure(AppFailure failure) {
-    return failure is BusinessFailure &&
-        failure.code == ErrorCode.rollCuringMinimumNotMet;
+  /// `true` when the failure is surfaced through a modal dialog (curing-min or
+  /// any [RollScanBlockedKind]) and must NOT also show the inline error card.
+  static bool _isHandledByDialog(AppFailure failure) {
+    if (failure is! BusinessFailure) return false;
+    return failure.code == ErrorCode.rollCuringMinimumNotMet ||
+        ScanRollScreen.blockedKindFor(failure.code) != null;
   }
 }
 

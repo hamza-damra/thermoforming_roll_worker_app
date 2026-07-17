@@ -23,7 +23,58 @@ Widget _harness(GlobalKey<NavigatorState> navKey) {
 
 void main() {
   group('showCuringMinViolationDialog', () {
-    testWidgets('renders blocking title + serverMessage body', (
+    testWidgets(
+      'renders Arabic copy + hours details, never the raw backend message',
+      (WidgetTester tester) async {
+        final navKey = GlobalKey<NavigatorState>();
+        await tester.pumpWidget(_harness(navKey));
+
+        unawaited(
+          showCuringMinViolationDialog(
+            navKey.currentContext!,
+            failure: const BusinessFailure(
+              code: ErrorCode.rollCuringMinimumNotMet,
+              statusCode: 409,
+              // English backend message MUST be suppressed.
+              serverMessage:
+                  'Roll 009000000107 has not met the minimum curing '
+                  'period (48h). Actual age: 45h',
+              details: <String, Object?>{
+                'rollId': '009000000107',
+                'minCuringHours': 48,
+                'actualAgeHours': 45,
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('لا يمكن تركيب الرول'), findsOneWidget);
+        // Lead sentence names the roll inline and uses the "الدنيا" (minimum)
+        // wording so it is distinct from the curing-MAX warning.
+        expect(
+          find.text('الرول 009000000107 لم يكمل مدة الحضانة الدنيا المطلوبة.'),
+          findsOneWidget,
+        );
+        expect(find.text('العمر الحالي: 45 ساعة.'), findsOneWidget);
+        expect(find.text('الحد الأدنى المطلوب: 48 ساعة.'), findsOneWidget);
+        expect(
+          find.text(
+            'يرجى الانتظار حتى اكتمال مدة الحضانة ثم المحاولة مرة أخرى.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('حسنًا'), findsOneWidget);
+
+        // The English backend message and the forbidden term must be absent.
+        expect(find.textContaining('curing period'), findsNothing);
+        expect(find.textContaining('has not met'), findsNothing);
+        expect(find.textContaining('Actual age'), findsNothing);
+        expect(find.textContaining('التخمير'), findsNothing);
+      },
+    );
+
+    testWidgets('omits detail lines when details are missing (no crash)', (
       WidgetTester tester,
     ) async {
       final navKey = GlobalKey<NavigatorState>();
@@ -35,24 +86,26 @@ void main() {
           failure: const BusinessFailure(
             code: ErrorCode.rollCuringMinimumNotMet,
             statusCode: 409,
-            serverMessage:
-                'لا يمكن تركيب هذا الرول الآن. مدة الحضانة المطلوبة 5 يوم.',
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('لا يمكن تركيب الرول'), findsOneWidget);
+      // No roll id and no details → the safe Arabic fallback sentence renders.
       expect(
         find.text(
-          'لا يمكن تركيب هذا الرول الآن. مدة الحضانة المطلوبة 5 يوم.',
+          'هذا الرول لم يكمل مدة الحضانة الدنيا المطلوبة ولا يمكن تركيبه الآن.',
         ),
         findsOneWidget,
       );
-      expect(find.text('حسناً'), findsOneWidget);
+      // No details → no current-age / minimum-required lines, but the dialog
+      // still renders cleanly.
+      expect(find.textContaining('العمر الحالي:'), findsNothing);
+      expect(find.textContaining('الحد الأدنى المطلوب:'), findsNothing);
+      expect(find.text('حسنًا'), findsOneWidget);
     });
 
-    testWidgets('falls back to static Arabic when serverMessage is null', (
+    testWidgets('falls back to scanned roll number when details omit it', (
       WidgetTester tester,
     ) async {
       final navKey = GlobalKey<NavigatorState>();
@@ -63,17 +116,19 @@ void main() {
           navKey.currentContext!,
           failure: const BusinessFailure(
             code: ErrorCode.rollCuringMinimumNotMet,
-            statusCode: 409,
+            details: <String, Object?>{'minCuringHours': 48},
           ),
+          rollNumber: '009000000107',
         ),
       );
       await tester.pumpAndSettle();
 
-      // Handoff §7.1 wording (replaces the in-house phrasing).
+      // The scanned roll number is woven into the lead sentence.
       expect(
-        find.text('هذا الرول لم يكتمل فترة الحضانة الدنيا بعد.'),
+        find.text('الرول 009000000107 لم يكمل مدة الحضانة الدنيا المطلوبة.'),
         findsOneWidget,
       );
+      expect(find.text('الحد الأدنى المطلوب: 48 ساعة.'), findsOneWidget);
     });
 
     testWidgets('dismiss button pops the dialog', (
@@ -88,13 +143,12 @@ void main() {
           navKey.currentContext!,
           failure: const BusinessFailure(
             code: ErrorCode.rollCuringMinimumNotMet,
-            serverMessage: 'msg',
           ),
         ).then((_) => resolved = true),
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('حسناً'));
+      await tester.tap(find.text('حسنًا'));
       await tester.pumpAndSettle();
 
       expect(resolved, isTrue);
