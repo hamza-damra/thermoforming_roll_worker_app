@@ -1,5 +1,7 @@
 import 'package:intl/intl.dart';
 
+import '../../../../core/util/factory_time.dart';
+
 /// Data required to render a roll QR label in the structured 100×100 mm
 /// layout (ported from `RollProductionApp/.../roll_label_data.dart`).
 ///
@@ -55,7 +57,7 @@ class RollLabelData {
   /// Bare 12-digit serial line. Always plain digits.
   String get serialDisplay => generatedRollId;
 
-  /// Arabic weekday name derived from [createdAt] in local time.
+  /// Arabic weekday name derived from [createdAt] in factory time.
   String get weekdayDisplay {
     const List<String> days = <String>[
       'الإثنين',
@@ -66,20 +68,20 @@ class RollLabelData {
       'السبت',
       'الأحد',
     ];
-    return days[createdAt.toLocal().weekday - 1];
+    return days[toFactoryTime(createdAt).weekday - 1];
   }
 
   /// Date formatted as dd-MM-yyyy (e.g. "11-05-2026").
   String get dateDisplay =>
-      DateFormat('dd-MM-yyyy').format(createdAt.toLocal());
+      DateFormat('dd-MM-yyyy').format(toFactoryTime(createdAt));
 
   /// 12-hour clock with Arabic period name. Rendered with TextDirection.ltr
   /// so output reads "09:14 مساء", not "مساء 09:14".
   String get timeDisplay {
-    final DateTime local = createdAt.toLocal();
-    final int hour12 = local.hour % 12 == 0 ? 12 : local.hour % 12;
-    final String minute = local.minute.toString().padLeft(2, '0');
-    final String period = local.hour < 12 ? 'صباحاً' : 'مساء';
+    final DateTime factory = toFactoryTime(createdAt);
+    final int hour12 = factory.hour % 12 == 0 ? 12 : factory.hour % 12;
+    final String minute = factory.minute.toString().padLeft(2, '0');
+    final String period = factory.hour < 12 ? 'صباحاً' : 'مساء';
     return '${hour12.toString().padLeft(2, '0')}:$minute $period';
   }
 }

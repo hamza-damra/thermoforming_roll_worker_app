@@ -47,6 +47,7 @@ dependencies:
   # core/services/takeover_alert_service.dart).
   audioplayers: ^6.0.0
   vibration: ^2.0.0
+  timezone: ^0.11.1
 
 dev_dependencies:
   flutter_test:
