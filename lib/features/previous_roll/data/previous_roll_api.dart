@@ -26,30 +26,39 @@ class PreviousRollApi {
   }
 
   /// `POST .../shift-lines/{shiftLineId}/previous-roll/return` with
-  /// `{remainingWeightKg}`.
+  /// `{remainingWeightKg, reasonText}` (V127 — `reasonText` is now required and
+  /// re-validated server-side: trimmed, non-blank, max 500 chars).
   Future<PreviousRollResolutionResponse> returnRemaining({
     required int shiftLineId,
     required double remainingWeightKg,
+    required String reasonText,
     required String sessionToken,
   }) {
     return _post(
       path: ApiPaths.previousRollReturn(shiftLineId),
       sessionToken: sessionToken,
-      body: <String, dynamic>{'remainingWeightKg': remainingWeightKg},
+      body: <String, dynamic>{
+        'remainingWeightKg': remainingWeightKg,
+        'reasonText': reasonText.trim(),
+      },
     );
   }
 
   /// `POST .../shift-lines/{shiftLineId}/previous-roll/grinding` with
-  /// `{remainingWeightKg}`.
+  /// `{remainingWeightKg, reasonText}` (V127 — `reasonText` is now required).
   Future<PreviousRollResolutionResponse> sendToGrinding({
     required int shiftLineId,
     required double remainingWeightKg,
+    required String reasonText,
     required String sessionToken,
   }) {
     return _post(
       path: ApiPaths.previousRollGrinding(shiftLineId),
       sessionToken: sessionToken,
-      body: <String, dynamic>{'remainingWeightKg': remainingWeightKg},
+      body: <String, dynamic>{
+        'remainingWeightKg': remainingWeightKg,
+        'reasonText': reasonText.trim(),
+      },
     );
   }
 

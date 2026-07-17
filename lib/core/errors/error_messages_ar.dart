@@ -50,6 +50,14 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
   ErrorCode.noActiveRollOnLine: 'لا يوجد رول مركب حالياً على هذا الخط.',
   ErrorCode.noOpenSegmentOnItem:
       'خطأ داخلي في حالة الرول. يرجى تحديث الشاشة وإعادة المحاولة.',
+  // Admin-cancelled roll (V127). The scan flow shows a dedicated dialog built
+  // from `details`; this is the inline/fallback phrasing.
+  ErrorCode.rollAdminCancelled:
+      'تم إلغاء هذا الرول من الإدارة ولا يمكن تركيبه.',
+  // Reconciled out of physical inventory (V132). The scan flow shows a
+  // dedicated dialog; this is the inline/fallback phrasing.
+  ErrorCode.rollReconciledOutOfStock:
+      'تمت تسوية هذا الرول مخزونياً ولا يمكن تركيبه.',
 
   // Weight inputs (handoff §7.2)
   ErrorCode.invalidRemainingRollWeight:
@@ -58,6 +66,10 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
       'وزن الرول الحالي مطلوب قبل تغيير المنتج.',
   ErrorCode.invalidCurrentRollWeight:
       'وزن الرول الحالي غير صالح. يجب أن يكون صفراً أو موجباً ولا يتجاوز وزن بداية الجزء.',
+
+  // Previous-roll close reasons (V127 — reason is now required server-side).
+  ErrorCode.rollReturnReasonRequired: 'سبب إرجاع المتبقي مطلوب.',
+  ErrorCode.rollGrindingReasonRequired: 'سبب التوصية بالجرش مطلوب.',
 
   // Product switch (legacy — manual product-switch removed; codes kept
   // because /scan-roll can still surface them indirectly).

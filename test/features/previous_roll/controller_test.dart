@@ -126,13 +126,14 @@ void main() {
         () => prev.returnRemaining(
           shiftLineId: kShiftLineId,
           remainingWeightKg: 75.5,
+          reasonText: 'سبب الإرجاع',
         ),
       ).thenAnswer((_) async => PreviousRollSuccess(_partiallyReturned()));
       final container = _container(prevRepo: prev);
 
       await container
           .read(previousRollResolutionControllerProvider(kShiftLineId).notifier)
-          .returnRemaining(75.5);
+          .returnRemaining(75.5, 'سبب الإرجاع');
 
       final state = container.read(
         previousRollResolutionControllerProvider(kShiftLineId),
@@ -153,6 +154,7 @@ void main() {
         () => prev.sendToGrinding(
           shiftLineId: kShiftLineId,
           remainingWeightKg: 40.0,
+          reasonText: 'سبب الجرش',
         ),
       ).thenAnswer(
         (_) async => const PreviousRollFailure(
@@ -166,7 +168,7 @@ void main() {
 
       await container
           .read(previousRollResolutionControllerProvider(kShiftLineId).notifier)
-          .sendToGrinding(40.0);
+          .sendToGrinding(40.0, 'سبب الجرش');
 
       verify(() => authRepo.clearStoredToken(kShiftLineId)).called(1);
       expect(
@@ -184,6 +186,7 @@ void main() {
           () => prev.sendToGrinding(
             shiftLineId: kShiftLineId,
             remainingWeightKg: 40.0,
+            reasonText: 'سبب الجرش',
           ),
         ).thenAnswer(
           (_) async => const PreviousRollFailure(
@@ -199,7 +202,7 @@ void main() {
             .read(
               previousRollResolutionControllerProvider(kShiftLineId).notifier,
             )
-            .sendToGrinding(40.0);
+            .sendToGrinding(40.0, 'سبب الجرش');
 
         verify(() => authRepo.clearStoredToken(kShiftLineId)).called(1);
       },
@@ -212,6 +215,7 @@ void main() {
         () => prev.sendToGrinding(
           shiftLineId: kShiftLineId,
           remainingWeightKg: 40.0,
+          reasonText: 'سبب الجرش',
         ),
       ).thenAnswer(
         (_) async => const PreviousRollFailure(
@@ -237,7 +241,7 @@ void main() {
 
       await container
           .read(previousRollResolutionControllerProvider(kShiftLineId).notifier)
-          .sendToGrinding(40.0);
+          .sendToGrinding(40.0, 'سبب الجرش');
 
       expect(
         container.read(rollScanControllerProvider(kShiftLineId)),

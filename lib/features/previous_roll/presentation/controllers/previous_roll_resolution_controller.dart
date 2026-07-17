@@ -32,24 +32,32 @@ class PreviousRollResolutionController
 
   /// `POST .../previous-roll/return` — caller has already validated
   /// `>= 0` and `<= activeSegment startWeight` against the mount card's
-  /// `lastKnownWeightKg`.
-  Future<void> returnRemaining(double remainingWeightKg) async {
+  /// `lastKnownWeightKg`, and that [reasonText] is non-blank (V127).
+  Future<void> returnRemaining(
+    double remainingWeightKg,
+    String reasonText,
+  ) async {
     if (state is PreviousRollResolving) return;
     state = const PreviousRollResolving();
     final PreviousRollResult result = await _repo.returnRemaining(
       shiftLineId: _shiftLineId,
       remainingWeightKg: remainingWeightKg,
+      reasonText: reasonText,
     );
     await _handle(result);
   }
 
-  /// `POST .../previous-roll/grinding`.
-  Future<void> sendToGrinding(double remainingWeightKg) async {
+  /// `POST .../previous-roll/grinding` with a required [reasonText] (V127).
+  Future<void> sendToGrinding(
+    double remainingWeightKg,
+    String reasonText,
+  ) async {
     if (state is PreviousRollResolving) return;
     state = const PreviousRollResolving();
     final PreviousRollResult result = await _repo.sendToGrinding(
       shiftLineId: _shiftLineId,
       remainingWeightKg: remainingWeightKg,
+      reasonText: reasonText,
     );
     await _handle(result);
   }

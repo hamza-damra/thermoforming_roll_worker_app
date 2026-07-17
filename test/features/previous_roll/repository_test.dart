@@ -165,6 +165,7 @@ void main() {
       final result = await repo.returnRemaining(
         shiftLineId: kShiftLineId,
         remainingWeightKg: 75.5,
+        reasonText: 'سبب الإرجاع',
       );
       expect(result, isA<PreviousRollSuccess>());
       final res = (result as PreviousRollSuccess).resolution;
@@ -191,6 +192,7 @@ void main() {
         final result = await repo.returnRemaining(
           shiftLineId: kShiftLineId,
           remainingWeightKg: 1000.0,
+          reasonText: 'سبب الإرجاع',
         );
         expect(result, isA<PreviousRollFailure>());
         expect(
@@ -223,6 +225,7 @@ void main() {
         final result = await repo.returnRemaining(
           shiftLineId: kShiftLineId,
           remainingWeightKg: 75.5,
+          reasonText: 'سبب الإرجاع',
         );
         expect(result, isA<PreviousRollFailure>());
         verify(
@@ -254,6 +257,7 @@ void main() {
         final result = await repo.sendToGrinding(
           shiftLineId: kShiftLineId,
           remainingWeightKg: 40.0,
+          reasonText: 'سبب الجرش',
         );
         expect(result, isA<PreviousRollSuccess>());
         final res = (result as PreviousRollSuccess).resolution;
@@ -284,6 +288,7 @@ void main() {
         final result = await repo.sendToGrinding(
           shiftLineId: kShiftLineId,
           remainingWeightKg: 40.0,
+          reasonText: 'سبب الجرش',
         );
         expect(result, isA<PreviousRollFailure>());
         verify(
@@ -310,6 +315,7 @@ void main() {
       final result = await repo.sendToGrinding(
         shiftLineId: kShiftLineId,
         remainingWeightKg: 40.0,
+        reasonText: 'سبب الجرش',
       );
       expect(result, isA<PreviousRollFailure>());
       expect((result as PreviousRollFailure).failure, isA<NetworkFailure>());

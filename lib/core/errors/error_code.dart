@@ -42,10 +42,27 @@ enum ErrorCode {
   noActiveRollOnLine('NO_ACTIVE_ROLL_ON_LINE'),
   noOpenSegmentOnItem('NO_OPEN_SEGMENT_ON_ITEM'),
 
+  /// Scan/mount rejected because the roll was cancelled by an admin (V127).
+  /// Carries a `details` payload (`cancelledBy`, `cancelReason`, `cancelledAt`,
+  /// …) the app renders in a dedicated dialog.
+  rollAdminCancelled('ROLL_ADMIN_CANCELLED'),
+
+  /// Scan/mount rejected because the roll was reconciled out of physical
+  /// inventory (V132). Terminal for mounting, like [rollAdminCancelled], but
+  /// the envelope carries `details: null` — there is no payload to render.
+  rollReconciledOutOfStock('ROLL_RECONCILED_OUT_OF_STOCK'),
+
   // ─── Weight inputs ────────────────────────────────────────────────────────
   invalidRemainingRollWeight('INVALID_REMAINING_ROLL_WEIGHT'),
   currentRollWeightRequired('CURRENT_ROLL_WEIGHT_REQUIRED'),
   invalidCurrentRollWeight('INVALID_CURRENT_ROLL_WEIGHT'),
+
+  // ─── Previous-roll close reasons (V127, now required) ─────────────────────
+  /// `/previous-roll/return` was called with a blank/whitespace-only reason.
+  rollReturnReasonRequired('ROLL_RETURN_REASON_REQUIRED'),
+
+  /// `/previous-roll/grinding` was called with a blank/whitespace-only reason.
+  rollGrindingReasonRequired('ROLL_GRINDING_REASON_REQUIRED'),
 
   // ─── Product switch ───────────────────────────────────────────────────────
   productTypeNotFound('PRODUCT_TYPE_NOT_FOUND'),

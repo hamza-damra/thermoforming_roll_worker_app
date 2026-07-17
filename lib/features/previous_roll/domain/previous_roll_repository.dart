@@ -26,21 +26,24 @@ abstract class PreviousRollRepository {
   Future<PreviousRollResult> fullConsume({required int shiftLineId});
 
   /// `POST /shift-lines/{shiftLineId}/previous-roll/return` with body
-  /// `{"remainingWeightKg": <num>}`.
+  /// `{"remainingWeightKg": <num>, "reasonText": <str>}`.
   ///
   /// Caller is responsible for client-side bounds (`>= 0` and
-  /// `<= activeSegment startWeight`); the backend re-validates and returns
-  /// `INVALID_REMAINING_ROLL_WEIGHT` if the value is out of bounds.
+  /// `<= activeSegment startWeight`) and for a non-blank [reasonText]; the
+  /// backend re-validates and returns `INVALID_REMAINING_ROLL_WEIGHT` or
+  /// `ROLL_RETURN_REASON_REQUIRED` if either is invalid.
   Future<PreviousRollResult> returnRemaining({
     required int shiftLineId,
     required double remainingWeightKg,
+    required String reasonText,
   });
 
   /// `POST /shift-lines/{shiftLineId}/previous-roll/grinding` with body
-  /// `{"remainingWeightKg": <num>}`. Same bounds as
-  /// [returnRemaining].
+  /// `{"remainingWeightKg": <num>, "reasonText": <str>}`. Same bounds as
+  /// [returnRemaining]; a blank reason returns `ROLL_GRINDING_REASON_REQUIRED`.
   Future<PreviousRollResult> sendToGrinding({
     required int shiftLineId,
     required double remainingWeightKg,
+    required String reasonText,
   });
 }

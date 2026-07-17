@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/errors/app_failure.dart';
+import '../../../../core/errors/error_code.dart';
 import '../../../../core/errors/error_messages_ar.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -10,6 +12,8 @@ import '../../../../core/widgets/inline_error.dart';
 import '../../domain/entities/previous_roll_resolution.dart';
 import '../controllers/previous_roll_resolution_controller.dart';
 import '../controllers/previous_roll_resolution_state.dart';
+import 'reason_text_field.dart';
+import 'reason_text_validation.dart';
 import 'remaining_weight_field.dart';
 import 'remaining_weight_validation.dart';
 
@@ -51,6 +55,7 @@ class _ReturnRemainingDialog extends ConsumerStatefulWidget {
   static const String body = 'هل تريد إرجاع الوزن المتبقي من هذا الرول؟';
   static const String submit = 'إرجاع المتبقي';
   static const String cancel = 'إلغاء';
+  static const String reasonLabel = 'سبب إرجاع المتبقي';
 
   @override
   ConsumerState<_ReturnRemainingDialog> createState() =>
@@ -60,15 +65,21 @@ class _ReturnRemainingDialog extends ConsumerStatefulWidget {
 class _ReturnRemainingDialogState
     extends ConsumerState<_ReturnRemainingDialog> {
   final TextEditingController _weightController = TextEditingController();
+  final TextEditingController _reasonController = TextEditingController();
 
-  /// `true` once the worker has typed into the field — keeps the dialog from
-  /// showing an error the instant it opens (the empty field is "invalid" but
-  /// not yet "wrong"). The confirm button is disabled regardless.
+  /// `true` once the worker has typed into the weight field — keeps the dialog
+  /// from showing an error the instant it opens (the empty field is "invalid"
+  /// but not yet "wrong"). The confirm button is disabled regardless.
   bool _touched = false;
+
+  /// Same idea for the reason field, tracked separately so editing one field
+  /// never surfaces a premature error on the other.
+  bool _reasonTouched = false;
 
   @override
   void dispose() {
     _weightController.dispose();
+    _reasonController.dispose();
     super.dispose();
   }
 
@@ -81,18 +92,25 @@ class _ReturnRemainingDialogState
     maxAllowedKg: widget.maxAllowedKg,
   );
 
-  bool get _canSubmit => _error == null;
+  /// Live reason validation (required, non-blank, ≤ 500 chars).
+  String? get _reasonError =>
+      ReasonTextValidation.validate(_reasonController.text);
+
+  bool get _canSubmit => _error == null && _reasonError == null;
 
   Future<void> _submit() async {
     if (!_canSubmit) {
-      setState(() => _touched = true);
+      setState(() {
+        _touched = true;
+        _reasonTouched = true;
+      });
       return;
     }
     await ref
         .read(
           previousRollResolutionControllerProvider(widget.shiftLineId).notifier,
         )
-        .returnRemaining(_parseWeight()!);
+        .returnRemaining(_parseWeight()!, _reasonController.text.trim());
   }
 
   @override
@@ -111,13 +129,27 @@ class _ReturnRemainingDialogState
     );
 
     final bool resolving = state is PreviousRollResolving;
-    final String? backendError = state is PreviousRollFailureState
-        ? arabicMessageFor(state.failure)
+    final AppFailure? failure = state is PreviousRollFailureState
+        ? state.failure
         : null;
+    // A blank-reason rejection from the backend is shown under the reason
+    // field (not the generic inline box) so the worker sees exactly what to fix.
+    final bool reasonBackendError =
+        failure is BusinessFailure &&
+        failure.code == ErrorCode.rollReturnReasonRequired;
+    final String? backendError = failure != null
+        ? arabicMessageFor(failure)
+        : null;
+    // Client-side error (once touched) takes precedence; otherwise surface a
+    // blank-reason rejection from the backend even when the field looks valid.
+    final String? clientReasonError = _reasonTouched ? _reasonError : null;
+    final String? reasonErrorText =
+        clientReasonError ?? (reasonBackendError ? backendError : null);
 
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
+        scrollable: true,
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
@@ -141,7 +173,16 @@ class _ReturnRemainingDialogState
               accent: widget.accent,
               onChanged: (_) => setState(() => _touched = true),
             ),
-            if (backendError != null) ...[
+            const SizedBox(height: 16),
+            ReasonTextField(
+              controller: _reasonController,
+              label: _ReturnRemainingDialog.reasonLabel,
+              enabled: !resolving,
+              errorText: reasonErrorText,
+              accent: widget.accent,
+              onChanged: (_) => setState(() => _reasonTouched = true),
+            ),
+            if (backendError != null && !reasonBackendError) ...[
               const SizedBox(height: 12),
               InlineError(message: backendError),
             ],

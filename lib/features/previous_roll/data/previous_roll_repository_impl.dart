@@ -29,12 +29,14 @@ class PreviousRollRepositoryImpl implements PreviousRollRepository {
   Future<PreviousRollResult> returnRemaining({
     required int shiftLineId,
     required double remainingWeightKg,
+    required String reasonText,
   }) {
     return _send(
       shiftLineId: shiftLineId,
       call: (String token) => _api.returnRemaining(
         shiftLineId: shiftLineId,
         remainingWeightKg: remainingWeightKg,
+        reasonText: reasonText,
         sessionToken: token,
       ),
     );
@@ -44,12 +46,14 @@ class PreviousRollRepositoryImpl implements PreviousRollRepository {
   Future<PreviousRollResult> sendToGrinding({
     required int shiftLineId,
     required double remainingWeightKg,
+    required String reasonText,
   }) {
     return _send(
       shiftLineId: shiftLineId,
       call: (String token) => _api.sendToGrinding(
         shiftLineId: shiftLineId,
         remainingWeightKg: remainingWeightKg,
+        reasonText: reasonText,
         sessionToken: token,
       ),
     );
