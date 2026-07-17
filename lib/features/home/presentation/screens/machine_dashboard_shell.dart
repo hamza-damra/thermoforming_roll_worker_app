@@ -198,7 +198,14 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
       );
       tabs.add(
         _MachineTab(
-          key: 'th-${line.thermoformingLineId}',
+          // Key by the operator shift-line/session (`shiftLineId`), NOT the
+          // physical line, so a session change (new `shiftLineId` on the same
+          // physical line) gives the tab a fresh ValueKey — tearing down the
+          // kept-alive RollWorkerHomeScreen and forcing a fresh summary load
+          // for the new scope, with no consumed kg/list leaking from the old
+          // session. Falls back to the physical-line key only when there is no
+          // session yet (waiting tab). Matches the registry-only `sl-$sid` key.
+          key: sid != null ? 'sl-$sid' : 'th-${line.thermoformingLineId}',
           shiftLineId: sid,
           oneBasedIndex: index,
           label: lineLabel,

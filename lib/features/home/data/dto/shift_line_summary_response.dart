@@ -40,10 +40,11 @@ class SummaryMountedRollResponse {
   );
 }
 
-/// One entry in the session-scoped `consumedRolls` list returned by
-/// `/shift-lines/{shiftLineId}/summary`. Capped at 10 newest-first by the
-/// backend; the wire codes for `closedReason` / `remainderAction` are
-/// translated to Arabic at render time.
+/// One entry in the operator-shift-line-scoped `consumedRolls` list returned by
+/// `/shift-lines/{shiftLineId}/summary` (V123). Capped at 10 newest-first by the
+/// backend; `consumedWeightKg` is the worker's per-interval contribution. The
+/// wire codes for `closedReason` / `remainderAction` are translated to Arabic
+/// at render time.
 class ConsumedRollResponse {
   const ConsumedRollResponse({
     required this.consumptionItemId,
@@ -224,7 +225,8 @@ class ShiftLineSummaryResponse {
       completedRollsInSession: json['completedRollsInSession'] as int,
       completedRollsByCurrentWorker:
           json['completedRollsByCurrentWorker'] as int,
-      // V104 productivity fields (additive; null/absent on legacy data).
+      // V123 operator-shift-line-scoped consumption metrics (additive;
+      // null/absent on a backend that does not compute them).
       consumedWeightKgInSession: _asDouble(json['consumedWeightKgInSession']),
       rollsContributedInSession:
           _asInt(json['rollsContributedInSession']) ?? 0,
@@ -257,12 +259,13 @@ class ShiftLineSummaryResponse {
   final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
 
-  /// DEPRECATED (V109): per-worker kg is no longer computed (returns `0`/`null`
-  /// for new sessions). Parsed for wire continuity but not displayed.
+  /// V123: the worker's consumed kg in the current operator shift-line/session
+  /// (CLOSED blocks on this `shiftLineId` + live provisional from the mounted
+  /// roll). `null`/absent on a backend that does not compute it.
   final double? consumedWeightKgInSession;
 
-  /// DEPRECATED (V109): distinct rolls this worker consumed > 0 — no longer
-  /// computed (returns `0`). Parsed for wire continuity but not displayed.
+  /// V123: distinct rolls the worker contributed > 0 kg to in the current
+  /// operator shift-line/session. `0` when absent.
   final int rollsContributedInSession;
   final List<ConsumedRollResponse> consumedRolls;
   final List<AllowedRollResponse> allowedRolls;

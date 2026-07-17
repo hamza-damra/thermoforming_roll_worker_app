@@ -30,6 +30,10 @@ ShiftLineSummary _summary({
   thermoformingLineName: 'خط التشكيل 1',
   completedRollsInSession: 8,
   completedRollsByCurrentWorker: 3,
+  // V123: operator-shift-line-scoped consumed kg + distinct rolls. The value
+  // is chosen so it never collides with the mounted-roll fixture (250.000 كغ).
+  consumedWeightKgInSession: 142.5,
+  rollsContributedInSession: 3,
   mountedRoll: mountedRoll,
   activeOperatorName: activeOperatorName,
 );
@@ -81,15 +85,21 @@ void main() {
 
       // App bar shows line label (خط أ) instead of TH code or machine label.
       expect(find.text('خط أ'), findsOneWidget);
-      // V109 summary card: session-scoped closed-rolls count + action subtitle
-      // (never a fabricated per-worker kg or "منك" personal attribution).
+      // V123 summary card: operator-shift-line-scoped consumed kg headline +
+      // session-scoped closed-rolls count below it. Still no "منك" personal
+      // attribution.
       expect(find.text('8'), findsOneWidget);
       expect(
         find.text('الرولات التي تم إغلاقها في هذه الجلسة'),
         findsOneWidget,
       );
       expect(find.textContaining('منك'), findsNothing);
-      expect(find.textContaining('كغ'), findsNothing);
+      // The consumed-kg card now shows the operator-shift-line-scoped kg.
+      expect(find.text('142.500 كغ'), findsOneWidget);
+      expect(
+        find.text('الوزن المُستهلَك في هذه المناوبة (كغم)'),
+        findsOneWidget,
+      );
       // Fixed register CTA is visible when no roll is mounted.
       expect(find.text(RollWorkerHomeScreen.registerRoll), findsOneWidget);
       // Empty mounted-roll card (message + helper).

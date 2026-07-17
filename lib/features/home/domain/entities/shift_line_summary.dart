@@ -58,9 +58,11 @@ class SummaryMountedRoll {
   );
 }
 
-/// One closed roll in the current `RollWorkerSession`, returned by the
-/// `/shift-lines/{shiftLineId}/summary` endpoint in the `consumedRolls`
-/// list (capped at 10, newest-first).
+/// One closed roll the worker contributed to within the current operator
+/// shift-line/session, returned by the `/shift-lines/{shiftLineId}/summary`
+/// endpoint in the `consumedRolls` list (capped at 10, newest-first). V123:
+/// `consumedWeightKg` is the worker's per-interval contribution, not
+/// necessarily the whole roll's `startWeightKg − endWeightKg`.
 ///
 /// `closedReason` and `remainderAction` are raw wire codes
 /// (`FULL_CONSUMPTION` / `PARTIAL_RETURN` / `PARTIAL_GRINDING` and
@@ -261,20 +263,26 @@ class ShiftLineSummary {
   /// worker. The UI may hide the "منك" sub-line when both are equal.
   final int completedRollsByCurrentWorker;
 
-  /// DEPRECATED (V109): per-worker kg can no longer be computed — inter-worker
-  /// weight boundaries were removed, so the backend returns `0`/`null` for new
-  /// sessions (historical pre-V109 data is unchanged). Parsed for wire/contract
-  /// continuity but NO LONGER DISPLAYED — the UI never shows a fabricated
-  /// per-worker kg; it headlines [completedRollsInSession] instead.
+  /// V123: the roll worker's consumed kg inside the **current operator
+  /// shift-line/session** — the sum of their CLOSED blocks on this `shiftLineId`
+  /// PLUS a live provisional estimate from the open block on the currently
+  /// mounted roll (`mountedRoll.lastKnownWeightKg`). Scoped by operator identity
+  /// + `shiftLineId`, so it survives a plain logout/login while the same
+  /// `shiftLineId` stays active; a new operator session (new `shiftLineId`)
+  /// starts a fresh scope. `null` ⇒ a backend that does not compute the metric
+  /// (the kg card is then hidden — never a fabricated figure).
   final double? consumedWeightKgInSession;
 
-  /// DEPRECATED (V109): see [consumedWeightKgInSession]. Returns `0` for new
-  /// sessions; parsed for contract continuity but not displayed.
+  /// V123: distinct rolls the worker contributed > 0 kg to within the current
+  /// operator shift-line/session (zero-consumption handovers excluded). Same
+  /// scope/continuity as [consumedWeightKgInSession].
   final int rollsContributedInSession;
 
-  /// Latest closed rolls in the current session, newest-first, capped at 10
-  /// by the backend. Always taken straight from the freshest REST response —
-  /// never accumulated or cached across sessions.
+  /// The worker's latest closed rolls within the current operator shift-line/
+  /// session (V123: scoped by operator identity + `shiftLineId`), newest-first,
+  /// capped at 10 by the backend. Each entry's `consumedWeightKg` is the
+  /// worker's per-interval contribution. Always taken straight from the freshest
+  /// REST response — never accumulated or cached across `shiftLineId` scopes.
   final List<ConsumedRoll> consumedRolls;
 
   /// Roll types the backend marks as allowed for the line's current product,

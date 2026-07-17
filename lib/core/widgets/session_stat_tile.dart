@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
-/// Compact session metric tile — accent icon circle + label + large value,
-/// with an optional [subline] and [trailing] widget. Mirrors the stat tiles
-/// in the Palletizing summary card.
+/// Compact session metric tile — optional accent icon circle + label + large
+/// value, with an optional [subline] and [trailing] widget. Mirrors the stat
+/// tiles in the Palletizing summary card. When [icon] is null the leading
+/// circle is omitted and the text column takes the full width.
 class SessionStatTile extends StatelessWidget {
   const SessionStatTile({
     super.key,
-    required this.icon,
+    this.icon,
     required this.label,
     required this.value,
     this.subline,
@@ -17,7 +18,7 @@ class SessionStatTile extends StatelessWidget {
     this.accent,
   });
 
-  final IconData icon;
+  final IconData? icon;
   final String label;
 
   /// Pre-formatted value string (kept as a plain [Text] so it stays
@@ -37,16 +38,18 @@ class SessionStatTile extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            shape: BoxShape.circle,
+        if (icon != null) ...<Widget>[
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 24, color: color),
           ),
-          child: Icon(icon, size: 24, color: color),
-        ),
-        const SizedBox(width: 14),
+          const SizedBox(width: 14),
+        ],
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

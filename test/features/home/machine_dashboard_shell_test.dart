@@ -14,6 +14,7 @@ import 'package:thermoforming_roll_worker/features/home/presentation/screens/mac
 import 'package:thermoforming_roll_worker/features/home/presentation/screens/roll_worker_home_screen.dart';
 import 'package:thermoforming_roll_worker/features/home/presentation/widgets/home_shimmer_skeleton.dart';
 import 'package:thermoforming_roll_worker/features/home/presentation/widgets/machine_waiting_card.dart';
+import 'package:thermoforming_roll_worker/features/home/presentation/widgets/per_machine_tab.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/data/roll_worker_auth_providers.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entities/batch_auth_outcome.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entities/roll_worker_session.dart';
@@ -78,6 +79,82 @@ class _StaticRegistry extends MultiLineSessionRegistry {
 class _FakeSessionsMe extends SessionsMeController {
   @override
   SessionsMeState build() => const SessionsMeIdle();
+}
+
+/// Bootstrap controller whose line list can be swapped mid-test (to simulate an
+/// operator-session change on the same physical line: same thermoformingLineId,
+/// new shiftLineId).
+class _MutableBootstrap extends RollWorkerBootstrapController {
+  _MutableBootstrap(this._lines);
+  List<RollWorkerBootstrapLine> _lines;
+
+  @override
+  RollWorkerBootstrapState build() => RollWorkerBootstrapLoaded(_lines);
+
+  @override
+  Future<void> refresh({String trigger = 'manual', bool background = false}) async {}
+
+  void setLines(List<RollWorkerBootstrapLine> lines) {
+    _lines = lines;
+    state = RollWorkerBootstrapLoaded(lines);
+  }
+}
+
+/// Registry whose state can be swapped mid-test (e.g. drop shiftLineId 800, add
+/// 801 for the same physical line).
+class _MutableRegistry extends MultiLineSessionRegistry {
+  _MutableRegistry(this._initial);
+  final MultiLineSessionRegistryState _initial;
+
+  @override
+  MultiLineSessionRegistryState build() => _initial;
+
+  @override
+  Future<void> restoreFromStorage() async {}
+
+  void applyState(MultiLineSessionRegistryState next) => state = next;
+}
+
+ConsumedRoll _consumedRoll({required String generatedRollId}) => ConsumedRoll(
+      consumptionItemId: 900,
+      rollId: 901,
+      generatedRollId: generatedRollId,
+      rollTypeCode: 'TP-1',
+      rollTypeName: 'White',
+      startWeightKg: 200.0,
+      endWeightKg: 0.0,
+      consumedWeightKg: 42.0,
+      closedReason: 'FULL_CONSUMPTION',
+      remainderAction: 'NONE',
+      endedAt: DateTime.parse('2026-05-23T10:00:00Z'),
+      endedAtDisplay: '٢٣ أيار',
+    );
+
+/// Summary repo that returns a DISTINCT consumed list per shiftLineId:
+/// 800 → one roll "AAA000000800"; any other id → empty. Proves the scope is
+/// keyed by shiftLineId (a new session shows its own data, not the old).
+ShiftLineSummaryRepository _scopedSummaryRepo() {
+  final repo = _MockSummaryRepo();
+  when(() => repo.fetchSummary(shiftLineId: any(named: 'shiftLineId')))
+      .thenAnswer((invocation) async {
+    final int id =
+        invocation.namedArguments[const Symbol('shiftLineId')] as int;
+    return SummarySuccess(
+      ShiftLineSummary(
+        shiftLineId: id,
+        thermoformingLineCode: 'TH-0$id',
+        thermoformingLineName: 'خط التشكيل',
+        completedRollsInSession: 0,
+        completedRollsByCurrentWorker: 0,
+        consumedWeightKgInSession: id == 800 ? 42.0 : 0.0,
+        consumedRolls: id == 800
+            ? <ConsumedRoll>[_consumedRoll(generatedRollId: 'AAA000000800')]
+            : const <ConsumedRoll>[],
+        activeOperatorName: 'مشغل التشكيل',
+      ),
+    );
+  });
+  return repo;
 }
 
 RollWorkerBootstrapLine _line({
@@ -443,5 +520,119 @@ void main() {
     expect(find.byType(RollWorkerLoadingScaffold), findsOneWidget);
     // The old green-app-bar spinner is gone.
     expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  group('summary scope is keyed by shiftLineId, not physical line', () {
+    testWidgets(
+      'an authorized tab is keyed by sl-<shiftLineId> (operator session), '
+      'not th-<physicalLine>',
+      (WidgetTester tester) async {
+        final container = _container(
+          lines: <RollWorkerBootstrapLine>[
+            _line(
+              thermoformingLineId: 1,
+              shiftLineId: 800,
+              selectable: true,
+              machineNumber: 1,
+              operatorName: 'م. حمزة',
+            ),
+          ],
+          registry: _active(<int>{800}, activeId: 800),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(_wrap(container));
+        await _settle(tester);
+
+        final PerMachineTab tab = tester.widget<PerMachineTab>(
+          find.byType(PerMachineTab),
+        );
+        // The tab identity follows the operator shift-line/session, so a new
+        // shiftLineId tears the kept-alive subtree down and reloads.
+        expect(tab.key, const ValueKey<String>('sl-800'));
+      },
+    );
+
+    testWidgets(
+      'same physical line, shiftLineId 800 → 801: old consumed data does not '
+      'leak; the new session shows its own (empty) scope',
+      (WidgetTester tester) async {
+        // Tall surface so the lower consumed-rolls section is laid out.
+        tester.view.physicalSize = const Size(1200, 4000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final auth = _MockAuthRepo();
+        when(() => auth.clearStoredToken(any())).thenAnswer((_) async {});
+        final index = _MockIndex();
+        when(() => index.writeIds(any())).thenAnswer((_) async {});
+        when(index.readIds).thenAnswer((_) async => <int>{});
+
+        final container = ProviderContainer(
+          overrides: <Override>[
+            rollWorkerBootstrapControllerProvider.overrideWith(
+              () => _MutableBootstrap(<RollWorkerBootstrapLine>[
+                _line(
+                  thermoformingLineId: 1,
+                  shiftLineId: 800,
+                  selectable: true,
+                  machineNumber: 1,
+                  operatorName: 'م. حمزة',
+                ),
+              ]),
+            ),
+            multiLineSessionRegistryProvider.overrideWith(
+              () => _MutableRegistry(_active(<int>{800}, activeId: 800)),
+            ),
+            sessionsMeControllerProvider.overrideWith(_FakeSessionsMe.new),
+            rollWorkerAuthRepositoryProvider.overrideWithValue(auth),
+            shiftLineSummaryRepositoryProvider.overrideWithValue(
+              _scopedSummaryRepo(),
+            ),
+            sessionIndexStorageProvider.overrideWithValue(index),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(_wrap(container));
+        await _settle(tester);
+        await _settle(tester);
+
+        // Session 800 shows its consumed roll.
+        expect(find.text('AAA000000800'), findsOneWidget);
+        expect(find.text('42.000 كغ'), findsWidgets);
+
+        // Operator-session change on the SAME physical line (thermoformingLineId
+        // 1): old shiftLineId 800 ends, new shiftLineId 801 starts.
+        final bootstrap = container.read(
+          rollWorkerBootstrapControllerProvider.notifier,
+        ) as _MutableBootstrap;
+        final registry = container.read(
+          multiLineSessionRegistryProvider.notifier,
+        ) as _MutableRegistry;
+        bootstrap.setLines(<RollWorkerBootstrapLine>[
+          _line(
+            thermoformingLineId: 1,
+            shiftLineId: 801,
+            selectable: true,
+            machineNumber: 1,
+            operatorName: 'م. حمزة',
+          ),
+        ]);
+        registry.applyState(_active(<int>{801}, activeId: 801));
+
+        await _settle(tester);
+        await _settle(tester);
+
+        // The new session (801) shows its OWN empty scope — the old session's
+        // consumed roll must NOT leak across the shiftLineId boundary.
+        expect(find.text('AAA000000800'), findsNothing);
+        expect(
+          find.text('لا توجد رولات مستهلكة في هذه المناوبة بعد'),
+          findsOneWidget,
+        );
+      },
+    );
   });
 }

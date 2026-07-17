@@ -52,7 +52,7 @@ void main() {
       expect(dto.toEntity().completedRollsInSession, 5);
     });
 
-    group('V104 productivity fields', () {
+    group('V123 operator-shift-line-scoped consumption metrics', () {
       test('parses consumedWeightKgInSession + rollsContributedInSession', () {
         final Map<String, dynamic> json = _baseJson()
           ..['consumedWeightKgInSession'] = 142.5
@@ -64,12 +64,61 @@ void main() {
         expect(entity.rollsContributedInSession, 3);
       });
 
+      test('coerces an integer kg to double', () {
+        final Map<String, dynamic> json = _baseJson()
+          ..['consumedWeightKgInSession'] = 100;
+
+        final ShiftLineSummary entity =
+            ShiftLineSummaryResponse.fromJson(json).toEntity();
+        expect(entity.consumedWeightKgInSession, 100.0);
+      });
+
+      test('preserves a genuine 0.0 (distinct from absent/null)', () {
+        final Map<String, dynamic> json = _baseJson()
+          ..['consumedWeightKgInSession'] = 0.0;
+
+        final ShiftLineSummary entity =
+            ShiftLineSummaryResponse.fromJson(json).toEntity();
+        // 0.0 is a real "nothing consumed yet" value — NOT collapsed to null.
+        expect(entity.consumedWeightKgInSession, 0.0);
+      });
+
       test('defaults to null kg + 0 rolls on legacy data (fields absent)', () {
         final ShiftLineSummary entity =
             ShiftLineSummaryResponse.fromJson(_baseJson()).toEntity();
         expect(entity.consumedWeightKgInSession, isNull);
         expect(entity.rollsContributedInSession, 0);
       });
+
+      // Continuity proxy: a plain logout/login on the SAME shiftLineId re-fetches
+      // the same summary payload. The parser is pure and never drops/mutates
+      // fields, so the two parses are equal — the consumed kg/list "survive".
+      test(
+        'parsing the same payload twice yields equal entities (continuity)',
+        () {
+          final Map<String, dynamic> json = _baseJson()
+            ..['consumedWeightKgInSession'] = 142.5
+            ..['rollsContributedInSession'] = 3
+            ..['consumedRolls'] = <Map<String, dynamic>>[
+              _consumedRollJson(),
+              _consumedRollJson(
+                consumptionItemId: 901,
+                generatedRollId: '001000000124',
+                consumedWeightKg: 80.0,
+              ),
+            ];
+
+          final ShiftLineSummary a =
+              ShiftLineSummaryResponse.fromJson(json).toEntity();
+          final ShiftLineSummary b =
+              ShiftLineSummaryResponse.fromJson(json).toEntity();
+
+          expect(a, equals(b));
+          expect(a.consumedWeightKgInSession, 142.5);
+          expect(a.rollsContributedInSession, 3);
+          expect(a.consumedRolls, hasLength(2));
+        },
+      );
     });
 
     test('parses a consumedRolls array with one full-consumption item', () {

@@ -2,12 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/util/roll_status_labels_ar.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_primary_button.dart';
 import '../../../../core/widgets/info_row.dart';
 import '../../domain/entities/shift_line_summary.dart';
 
-/// Session-scoped list of closed rolls returned by `/summary.consumedRolls`.
+/// Operator-shift-line-scoped list of the worker's closed rolls returned by
+/// `/summary.consumedRolls` (V123).
+///
+/// Scoped by operator identity + the current operator shift-line/session, so it
+/// survives a plain logout/login while the same `shiftLineId` stays active (a
+/// new operator session / `shiftLineId` starts a fresh list) — hence the
+/// "في هذه المناوبة" copy. Each item's `consumedWeightKg` is this worker's
+/// per-interval contribution (not necessarily the whole roll, e.g. after a
+/// takeover), rendered verbatim from the backend.
 ///
 /// Each card is collapsed by default so the worker can scan the recent
 /// roll history at a glance. Tapping expands the card to reveal full
@@ -35,8 +44,8 @@ class ConsumedRollsSection extends StatelessWidget {
   /// the reprint affordances. Falls back to the brand primary.
   final Color? accent;
 
-  static const String heading = 'الرولات المستهلكة في هذه الجلسة';
-  static const String emptyState = 'لا توجد رولات مستهلكة في هذه الجلسة';
+  static const String heading = 'الرولات المستهلكة في هذه المناوبة';
+  static const String emptyState = 'لا توجد رولات مستهلكة في هذه المناوبة بعد';
 
   @override
   Widget build(BuildContext context) {
@@ -97,24 +106,6 @@ class _ConsumedRollCardState extends State<_ConsumedRollCard> {
   bool _expanded = false;
 
   static String _kg(double v) => '${v.toStringAsFixed(3)} كغ';
-
-  static String closedReasonLabel(String wire) {
-    return switch (wire) {
-      'FULL_CONSUMPTION' => 'استهلاك كامل',
-      'PARTIAL_RETURN' => 'إرجاع جزئي',
-      'PARTIAL_GRINDING' => 'جرش جزئي',
-      _ => wire,
-    };
-  }
-
-  static String remainderActionLabel(String wire) {
-    return switch (wire) {
-      'NONE' => 'بدون متبقي',
-      'RETURN' => 'إرجاع المتبقي',
-      'GRINDING' => 'إرسال للجرش',
-      _ => wire,
-    };
-  }
 
   /// Backend authoritative when `reprintAvailable` is present. Older backends
   /// that don't expose the flag fall back to inferring from `remainderAction`
@@ -239,7 +230,7 @@ class _ConsumedRollCardState extends State<_ConsumedRollCard> {
                   ),
                   _Pill(
                     icon: Icons.flag_outlined,
-                    text: closedReasonLabel(roll.closedReason),
+                    text: closedReasonLabelAr(roll.closedReason),
                     accent: accent,
                     muted: true,
                   ),
@@ -277,8 +268,10 @@ class _ConsumedRollCardState extends State<_ConsumedRollCard> {
                         roll: roll,
                         kg: _kg,
                         accent: accent,
-                        closedReason: closedReasonLabel(roll.closedReason),
-                        remainderAction: remainderActionLabel(roll.remainderAction),
+                        closedReason: closedReasonLabelAr(roll.closedReason),
+                        remainderAction: remainderActionLabelAr(
+                          roll.remainderAction,
+                        ),
                         showReprintButton: _canReprint,
                         onReprintTap: _fireReprint,
                       )
@@ -392,9 +385,12 @@ class _ExpandedBody extends StatelessWidget {
           icon: Icons.scale_outlined,
         ),
         InfoRow(
-          // Physical roll quantity (start − end weight of THIS roll), not a
-          // per-worker kg metric — V109 removed per-worker consumption boundaries.
-          label: 'الوزن المستهلك من الرول',
+          // V123: this worker's per-interval contribution to the roll within
+          // the current operator shift-line/session — NOT necessarily the whole
+          // roll's start − end (e.g. after a takeover the incoming worker is
+          // credited only the post-boundary delta). Rendered verbatim from the
+          // backend; never recomputed client-side.
+          label: 'الوزن المُستهلَك من الرول ضمن هذه المناوبة',
           value: kg(roll.consumedWeightKg),
           icon: Icons.local_fire_department_outlined,
           valueStyle: AppTextStyles.metricValue,

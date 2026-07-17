@@ -65,9 +65,9 @@ void main() {
       _wrap(const ConsumedRollsSection(rolls: <ConsumedRoll>[])),
     );
 
-    expect(find.text('الرولات المستهلكة في هذه الجلسة'), findsOneWidget);
+    expect(find.text('الرولات المستهلكة في هذه المناوبة'), findsOneWidget);
     expect(
-      find.text('لا توجد رولات مستهلكة في هذه الجلسة'),
+      find.text('لا توجد رولات مستهلكة في هذه المناوبة بعد'),
       findsOneWidget,
     );
   });
@@ -154,6 +154,48 @@ void main() {
     },
   );
 
+  testWidgets(
+    'takeover: renders the per-interval consumedWeightKg verbatim (not start − end)',
+    (tester) async {
+      // After a different-worker takeover the incoming worker is credited only
+      // the post-boundary delta — so consumedWeightKg (80) is LESS than the
+      // whole roll's start − end (200 − 0 = 200). The widget must render the
+      // backend's per-interval value verbatim, never recompute it.
+      await tester.pumpWidget(
+        _wrap(
+          ConsumedRollsSection(
+            rolls: <ConsumedRoll>[
+              _roll(
+                startWeightKg: 200.0,
+                endWeightKg: 0.0,
+                consumedWeightKg: 80.0,
+                closedReason: 'FULL_CONSUMPTION',
+                remainderAction: 'NONE',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Collapsed: the pill shows the per-interval contribution (80), never the
+      // whole-roll start − end (200).
+      expect(find.text('80.000 كغ'), findsOneWidget);
+      expect(find.text('200.000 كغ'), findsNothing);
+
+      await _expandFirstCard(tester);
+
+      // Expanded: initial weight is the whole-roll start (200) once; the
+      // per-interval contribution (80) now appears twice — the always-visible
+      // pill + the consumed-from-roll info row.
+      expect(
+        find.text('الوزن المُستهلَك من الرول ضمن هذه المناوبة'),
+        findsOneWidget,
+      );
+      expect(find.text('200.000 كغ'), findsOneWidget); // الوزن الابتدائي
+      expect(find.text('80.000 كغ'), findsNWidgets(2)); // pill + consumed row
+    },
+  );
+
   testWidgets('renders endedAtDisplay verbatim (no re-formatting)', (
     tester,
   ) async {
@@ -195,24 +237,60 @@ void main() {
     expect(find.text('30.000 كغ'), findsOneWidget);
   });
 
-  testWidgets('falls back to raw wire code when unknown', (tester) async {
-    await tester.pumpWidget(
-      _wrap(
-        ConsumedRollsSection(
-          rolls: <ConsumedRoll>[
-            _roll(closedReason: 'SOMETHING_NEW', remainderAction: 'OTHER'),
-          ],
+  testWidgets(
+    'unknown wire codes show the safe Arabic fallback, never the raw enum',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          ConsumedRollsSection(
+            rolls: <ConsumedRoll>[
+              _roll(closedReason: 'SOMETHING_NEW', remainderAction: 'OTHER'),
+            ],
+          ),
         ),
-      ),
-    );
+      );
 
-    // Compact strip shows the (unknown) closedReason verbatim.
-    expect(find.text('SOMETHING_NEW'), findsOneWidget);
+      // Collapsed: the raw closedReason enum must NEVER reach the operator —
+      // the safe Arabic fallback is shown on the badge instead.
+      expect(find.text('SOMETHING_NEW'), findsNothing);
+      expect(find.text('حالة غير معروفة'), findsOneWidget);
 
-    // remainderAction is only visible in the expanded body.
-    await _expandFirstCard(tester);
-    expect(find.text('OTHER'), findsOneWidget);
-  });
+      await _expandFirstCard(tester);
+
+      // Expanded: neither raw enum leaks. The fallback now appears 3×:
+      // the badge + the "سبب الإغلاق" row (both closedReason) and the
+      // "إجراء المتبقي" row (remainderAction).
+      expect(find.text('SOMETHING_NEW'), findsNothing);
+      expect(find.text('OTHER'), findsNothing);
+      expect(find.text('حالة غير معروفة'), findsNWidgets(3));
+    },
+  );
+
+  testWidgets(
+    'GRINDING_REJECTED_TO_RETURN badge renders the exact Arabic '
+    'management-rejection label, never the raw enum',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          ConsumedRollsSection(
+            rolls: <ConsumedRoll>[
+              _roll(
+                closedReason: 'GRINDING_REJECTED_TO_RETURN',
+                remainderAction: 'RETURN',
+                remainingWeightKg: 40.0,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('GRINDING_REJECTED_TO_RETURN'), findsNothing);
+      expect(
+        find.text('التوصية بالجرش مرفوضة من قبل الإدارة'),
+        findsOneWidget,
+      );
+    },
+  );
 
   group('reprint visibility (RETURN / GRINDING only)', () {
     testWidgets('FULL_CONSUMPTION + NONE → no reprint button or icon',

@@ -652,6 +652,11 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
         //    so the history never dominates the first screen.
         SummaryCard(
           completedRollsInSession: summary.completedRollsInSession,
+          // V123: operator-shift-line-scoped consumed kg (includes live
+          // provisional from the mounted roll). Backend-corrected counters are
+          // trusted as-is (V127) — never recomputed from the active token.
+          consumedWeightKg: summary.consumedWeightKgInSession,
+          mountedRollPresent: summary.mountedRoll != null,
           isRefreshing: isRefreshing,
           accent: widget.accentColor,
         ),

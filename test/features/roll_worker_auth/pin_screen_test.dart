@@ -13,10 +13,25 @@ import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entit
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/entities/roll_worker_session.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/domain/session_batch_repository.dart';
 import 'package:thermoforming_roll_worker/features/roll_worker_auth/presentation/screens/pin_screen.dart';
+import 'package:thermoforming_roll_worker/core/storage/session_index_storage.dart';
+import 'package:thermoforming_roll_worker/core/storage/storage_providers.dart';
+import 'package:thermoforming_roll_worker/features/sessions_me/presentation/controllers/sessions_me_controller.dart';
+import 'package:thermoforming_roll_worker/features/sessions_me/presentation/controllers/sessions_me_state.dart';
 
 class _MockBatchRepo extends Mock implements SessionBatchRepository {}
 
 class _MockSummaryRepo extends Mock implements ShiftLineSummaryRepository {}
+
+class _MockIndex extends Mock implements SessionIndexStorage {}
+
+/// Inert `/sessions/me`: returns idle and skips the real registry-listener +
+/// fallback-poll wiring, so a successful login never spins up the perpetual
+/// poll `Timer.periodic` (which would otherwise make `pumpAndSettle` hang and
+/// leak a timer at teardown).
+class _InertSessionsMe extends SessionsMeController {
+  @override
+  SessionsMeState build() => const SessionsMeIdle();
+}
 
 ShiftLineSummaryRepository _summaryRepo() {
   final repo = _MockSummaryRepo();
@@ -42,10 +57,20 @@ ShiftLineSummaryRepository _summaryRepo() {
 const Set<int> kShiftLineIds = <int>{800, 801};
 
 Widget _wrap({required _MockBatchRepo repo}) {
+  // Keep the post-login machinery deterministic + timer-free: seed the session
+  // index through a mock (so `onBatchSuccess` completes instead of hanging on
+  // real secure storage) and keep `/sessions/me` inert (no live SSE/fallback-
+  // poll timer). Without these, a successful submit never settles.
+  final index = _MockIndex();
+  when(() => index.writeIds(any())).thenAnswer((_) async {});
+  when(index.readIds).thenAnswer((_) async => <int>{});
+
   return ProviderScope(
     overrides: <Override>[
       sessionBatchRepositoryProvider.overrideWithValue(repo),
       shiftLineSummaryRepositoryProvider.overrideWithValue(_summaryRepo()),
+      sessionIndexStorageProvider.overrideWithValue(index),
+      sessionsMeControllerProvider.overrideWith(_InertSessionsMe.new),
     ],
     child: MaterialApp(
       theme: AppTheme.light(),
@@ -111,7 +136,11 @@ void main() {
 
     await tester.enterText(find.byType(TextField), '1234');
     await tester.tap(find.text('دخول'));
-    await tester.pumpAndSettle();
+    // `submit()` invokes startBatch synchronously, then awaits the registry
+    // seed (mocked storage). Pump deterministically — NOT pumpAndSettle, which
+    // would spin forever on the in-flight loading spinner.
+    await tester.pump();
+    await tester.pump();
 
     verify(
       () => repo.startBatch(pin: '1234', shiftLineIds: kShiftLineIds),
