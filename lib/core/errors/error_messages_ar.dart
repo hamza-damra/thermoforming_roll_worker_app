@@ -5,9 +5,21 @@ import 'error_code.dart';
 /// `THERMOFORMING_ROLL_WORKER_APP_FRONTEND_REQUIREMENTS.md` §17 and the
 /// realtime + line-management handoff §7.
 const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
+  // Device / transport auth — a wrong or rotated `X-Device-Key` fails EVERY
+  // call on this app. Phrased as a configuration fault the worker cannot fix
+  // themselves, deliberately distinct from the session message below so a
+  // misconfigured device never reads as "your shift ended".
+  ErrorCode.authInvalidCredentials:
+      'إعدادات الجهاز غير صحيحة، يرجى التواصل مع المسؤول.',
+
   // Auth / session
   ErrorCode.rollWorkerNotAllowed: 'هذا الموظف غير مخوّل للعمل كموظف رولات.',
   ErrorCode.rollWorkerSessionRequired:
+      'انتهت الجلسة. يرجى تسجيل الدخول من جديد.',
+  // Same worker-facing text as the code above: both end in "log in again".
+  // They stay separate enum entries so the logs distinguish an expired session
+  // from a client bug that omitted the header.
+  ErrorCode.rollOpSessionTokenMissing:
       'انتهت الجلسة. يرجى تسجيل الدخول من جديد.',
   ErrorCode.operatorPinInvalid: 'رمز PIN غير صحيح.',
   ErrorCode.operatorPinLocked:

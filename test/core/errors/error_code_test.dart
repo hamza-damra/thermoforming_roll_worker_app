@@ -7,8 +7,10 @@ void main() {
   group('ErrorCode', () {
     test('fromWire matches every documented code', () {
       const Map<String, ErrorCode> wireToEnum = <String, ErrorCode>{
+        'AUTH_INVALID_CREDENTIALS': ErrorCode.authInvalidCredentials,
         'ROLL_WORKER_NOT_ALLOWED': ErrorCode.rollWorkerNotAllowed,
         'ROLL_WORKER_SESSION_REQUIRED': ErrorCode.rollWorkerSessionRequired,
+        'ROLL_OP_SESSION_TOKEN_MISSING': ErrorCode.rollOpSessionTokenMissing,
         'OPERATOR_PIN_INVALID': ErrorCode.operatorPinInvalid,
         'OPERATOR_PIN_LOCKED': ErrorCode.operatorPinLocked,
         'THERMOFORMING_SHIFT_LINE_NOT_FOUND':
@@ -98,6 +100,50 @@ void main() {
           const BusinessFailure(code: ErrorCode.rollReconciledOutOfStock),
         ),
         'تمت تسوية هذا الرول مخزونياً ولا يمكن تركيبه.',
+      );
+    });
+
+    test(
+      'a device-key fault reads as a configuration problem, NOT "log in again"',
+      () {
+        // §14: the two 401 flavours must be distinguishable to the worker.
+        // Being told to re-authenticate when the device key is wrong sends
+        // them down a path that cannot fix anything.
+        const String deviceMessage =
+            'إعدادات الجهاز غير صحيحة، يرجى التواصل مع المسؤول.';
+        const String sessionMessage = 'انتهت الجلسة. يرجى تسجيل الدخول من جديد.';
+
+        expect(
+          arabicMessageFor(
+            const BusinessFailure(
+              code: ErrorCode.authInvalidCredentials,
+              statusCode: 401,
+            ),
+          ),
+          deviceMessage,
+        );
+        expect(
+          arabicMessageFor(
+            const BusinessFailure(
+              code: ErrorCode.rollWorkerSessionRequired,
+              statusCode: 401,
+            ),
+          ),
+          sessionMessage,
+        );
+        expect(deviceMessage, isNot(sessionMessage));
+      },
+    );
+
+    test('a missing session-token header reads as a session fault', () {
+      expect(
+        arabicMessageFor(
+          const BusinessFailure(
+            code: ErrorCode.rollOpSessionTokenMissing,
+            statusCode: 400,
+          ),
+        ),
+        'انتهت الجلسة. يرجى تسجيل الدخول من جديد.',
       );
     });
 

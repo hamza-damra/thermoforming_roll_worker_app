@@ -62,7 +62,86 @@ void main() {
       expect(entity.id, 7);
       expect(entity.createdAt, isNull);
       expect(entity.createdAtDisplay, isNull);
+      expect(entity.expiresAt, isNull);
+      expect(entity.expiresAtDisplay, isNull);
       expect(entity.priority, isNull);
+    });
+
+    group('expiresAt / expiresAtDisplay (timed announcements §4.2)', () {
+      test('parses both when present', () {
+        final Map<String, dynamic> json = _baseJson()
+          ..['expiresAt'] = '2026-07-31T11:00:00.000Z'
+          ..['expiresAtDisplay'] = '2026-07-31، 02:00 مساءً';
+
+        final ManagerAnnouncement entity =
+            ManagerAnnouncementResponse.fromJson(json).toEntity();
+
+        expect(entity.expiresAt, DateTime.parse('2026-07-31T11:00:00.000Z'));
+        // The payload is UTC (`…Z`); expiry arithmetic in the controller
+        // depends on that, so assert it explicitly.
+        expect(entity.expiresAt!.isUtc, isTrue);
+        expect(entity.expiresAtDisplay, '2026-07-31، 02:00 مساءً');
+      });
+
+      test('explicit nulls mean "never expires" (legacy row)', () {
+        final Map<String, dynamic> json = _baseJson()
+          ..['expiresAt'] = null
+          ..['expiresAtDisplay'] = null;
+
+        final ManagerAnnouncement entity =
+            ManagerAnnouncementResponse.fromJson(json).toEntity();
+
+        expect(entity.expiresAt, isNull);
+        expect(entity.expiresAtDisplay, isNull);
+      });
+
+      test('an unparseable timestamp degrades to null, never throws', () {
+        final Map<String, dynamic> json = _baseJson()
+          ..['expiresAt'] = 'not-a-timestamp'
+          ..['expiresAtDisplay'] = '';
+
+        final ManagerAnnouncement entity =
+            ManagerAnnouncementResponse.fromJson(json).toEntity();
+
+        expect(entity.expiresAt, isNull);
+        // Empty strings normalise to null (`_asString`), so the UI never
+        // renders a blank caption.
+        expect(entity.expiresAtDisplay, isNull);
+      });
+
+      test('a non-string timestamp (epoch millis) degrades to null', () {
+        final Map<String, dynamic> json = _baseJson()..['expiresAt'] = 1785000000;
+
+        final ManagerAnnouncement entity =
+            ManagerAnnouncementResponse.fromJson(json).toEntity();
+
+        expect(entity.expiresAt, isNull);
+      });
+
+      test('expiry participates in entity equality', () {
+        final ManagerAnnouncement a = ManagerAnnouncementResponse.fromJson(
+          _baseJson()..['expiresAt'] = '2026-07-31T11:00:00.000Z',
+        ).toEntity();
+        final ManagerAnnouncement b = ManagerAnnouncementResponse.fromJson(
+          _baseJson()..['expiresAt'] = '2026-07-31T12:00:00.000Z',
+        ).toEntity();
+
+        expect(a, isNot(b));
+        expect(a, ManagerAnnouncementResponse.fromJson(
+          _baseJson()..['expiresAt'] = '2026-07-31T11:00:00.000Z',
+        ).toEntity());
+      });
+    });
+
+    test('unknown JSON keys are ignored — that is what makes §6 additive', () {
+      final Map<String, dynamic> json = _baseJson()
+        ..['someFutureKey'] = 'whatever'
+        ..['action'] = 'DEACTIVATED';
+
+      final ManagerAnnouncement entity =
+          ManagerAnnouncementResponse.fromJson(json).toEntity();
+
+      expect(entity.id, 123);
     });
 
     group('listFromEnvelopeData', () {

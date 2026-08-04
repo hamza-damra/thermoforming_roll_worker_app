@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/errors/app_failure.dart';
 import '../../../../core/errors/error_code.dart';
+import '../../../../core/errors/failure_classification.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_controller.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../data/previous_roll_providers.dart';
@@ -98,20 +99,19 @@ class PreviousRollResolutionController
   Future<void> _onFailure(AppFailure failure) async {
     state = PreviousRollFailureState(failure);
 
-    if (failure is! BusinessFailure) return;
-    switch (failure.code) {
-      case ErrorCode.rollWorkerSessionRequired:
-      case ErrorCode.thermoformingShiftLineNotActive:
-      case ErrorCode.thermoformingShiftLineNotFound:
-        await ref
-            .read(multiLineSessionRegistryProvider.notifier)
-            .notifySessionLost(_shiftLineId);
-      case ErrorCode.noActiveRollOnLine:
-        // Server says nothing is mounted — drop the local mount cache so
-        // the home re-exposes the empty mount CTA.
-        ref.read(rollScanControllerProvider(_shiftLineId).notifier).reset();
-      default:
-        break;
+    // A device-key fault is excluded by `isSessionLossCascade` — it leaves the
+    // session valid, so it must not funnel the worker back to the PIN overlay.
+    if (isSessionLossCascade(failure)) {
+      await ref
+          .read(multiLineSessionRegistryProvider.notifier)
+          .notifySessionLost(_shiftLineId);
+      return;
+    }
+    if (failure is BusinessFailure &&
+        failure.code == ErrorCode.noActiveRollOnLine) {
+      // Server says nothing is mounted — drop the local mount cache so
+      // the home re-exposes the empty mount CTA.
+      ref.read(rollScanControllerProvider(_shiftLineId).notifier).reset();
     }
   }
 }

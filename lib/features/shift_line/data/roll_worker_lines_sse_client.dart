@@ -81,8 +81,11 @@ class RollWorkerLinesFrameParser {
       raw.name == urgentAnnouncementName;
 
   /// Decodes the (sanitized) urgent-announcement nudge. The JSON body carries
-  /// only diagnostic fields (`announcementId`, `priority`) — never a body or
-  /// sender; the `/pending` endpoint remains authoritative.
+  /// only diagnostic fields (`announcementId`, `priority`, `action`) — never a
+  /// body or sender; the `/pending` endpoint remains authoritative.
+  ///
+  /// `action` is additive (handoff §4.1). A missing key (older backend) or a
+  /// malformed body still yields a nudge — every action means "refetch".
   static PickerSseUrgentAnnouncement parseUrgentAnnouncement(RawSseEvent raw) {
     final Object? decoded = _safeJsonDecode(raw.data);
     final Map<String, dynamic> map = decoded is Map<String, dynamic>
@@ -93,6 +96,9 @@ class RollWorkerLinesFrameParser {
           ? (map['announcementId'] as num).toInt()
           : null,
       priority: map['priority'] is String ? map['priority'] as String : null,
+      action: UrgentAnnouncementAction.fromWire(
+        map['action'] is String ? map['action'] as String : null,
+      ),
     );
   }
 

@@ -4,9 +4,28 @@
 ///
 /// Add new codes here when the backend introduces them; never invent codes.
 enum ErrorCode {
+  // ─── Device / transport auth ──────────────────────────────────────────────
+  /// The shared `X-Device-Key` is missing, empty, or wrong. The security
+  /// filter chain rejects the request (401) *before* the controller runs, so
+  /// this is a **device/configuration fault, never a session fault** — it must
+  /// not clear a session token or force the worker to re-authenticate. See
+  /// `isDeviceAuthFault` in `failure_classification.dart`.
+  ///
+  /// No bearer/JWT auth exists on any Roll Worker path, so on this app the
+  /// code can only ever mean the device key.
+  authInvalidCredentials('AUTH_INVALID_CREDENTIALS'),
+
   // ─── Roll-worker auth / session ───────────────────────────────────────────
   rollWorkerNotAllowed('ROLL_WORKER_NOT_ALLOWED'),
   rollWorkerSessionRequired('ROLL_WORKER_SESSION_REQUIRED'),
+
+  /// The `X-Session-Token` header was absent from the request entirely (400,
+  /// Spring's missing-required-header path). Strictly a client bug rather than
+  /// a shift-ended condition, but it is routed through the normal session-loss
+  /// flow so the worker gets a usable next step instead of a dead screen; the
+  /// distinct code keeps it greppable in the logs.
+  rollOpSessionTokenMissing('ROLL_OP_SESSION_TOKEN_MISSING'),
+
   operatorPinInvalid('OPERATOR_PIN_INVALID'),
   operatorPinLocked('OPERATOR_PIN_LOCKED'),
 

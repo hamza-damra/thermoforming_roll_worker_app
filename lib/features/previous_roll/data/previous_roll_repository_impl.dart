@@ -1,6 +1,7 @@
 import '../../../core/api/api_error_parser.dart';
 import '../../../core/errors/app_failure.dart';
 import '../../../core/errors/error_code.dart';
+import '../../../core/errors/failure_classification.dart';
 import '../../../core/storage/secure_token_storage.dart';
 import '../domain/previous_roll_repository.dart';
 import 'dto/previous_roll_resolution_response.dart';
@@ -76,16 +77,10 @@ class PreviousRollRepositoryImpl implements PreviousRollRepository {
       final AppFailure failure = ApiErrorParser.parse(error, stack);
       // Cascade-on-end / session-loss invalidates the locally stored token.
       // Other failures preserve it so the worker can retry without
-      // re-authenticating.
-      if (failure is BusinessFailure) {
-        switch (failure.code) {
-          case ErrorCode.rollWorkerSessionRequired:
-          case ErrorCode.thermoformingShiftLineNotActive:
-          case ErrorCode.thermoformingShiftLineNotFound:
-            await _storage.clearSessionToken(shiftLineId);
-          default:
-            break;
-        }
+      // re-authenticating — notably a device-key fault, which leaves the
+      // session perfectly valid.
+      if (isSessionLossCascade(failure)) {
+        await _storage.clearSessionToken(shiftLineId);
       }
       return PreviousRollFailure(failure);
     }

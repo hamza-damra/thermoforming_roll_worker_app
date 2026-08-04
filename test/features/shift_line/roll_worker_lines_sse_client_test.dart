@@ -116,11 +116,120 @@ void main() {
       expect(nudges, hasLength(1));
       expect(nudges.single.announcementId, 123);
       expect(nudges.single.priority, 'URGENT');
+      // No `action` key on this frame (pre-timed-announcements backend) →
+      // handoff §11: treat as CREATED.
+      expect(nudges.single.action, UrgentAnnouncementAction.created);
       // Critically: the additive event must NOT be misrouted as a bootstrap
       // refresh trigger (handoff: existing refresh handling unchanged).
       expect(items.whereType<PickerSseRefreshTriggered>(), isEmpty);
     },
   );
+
+  group('urgent-manager-announcement `action` (timed-announcements §4.1)', () {
+    Future<PickerSseUrgentAnnouncement> nudgeFor(String dataJson) async {
+      final source = _ScriptedSource(<Stream<List<int>>>[
+        _frame('event: urgent-manager-announcement\ndata: $dataJson\n\n'),
+      ]);
+      addTearDown(source.dispose);
+      final client = RollWorkerLinesSseClient(
+        source: source,
+        initialBackoff: const Duration(milliseconds: 5),
+      );
+      final items = await _collect(client);
+      return items.whereType<PickerSseUrgentAnnouncement>().single;
+    }
+
+    for (final (String wire, UrgentAnnouncementAction expected) in <
+      (String, UrgentAnnouncementAction)
+    >[
+      ('CREATED', UrgentAnnouncementAction.created),
+      ('UPDATED', UrgentAnnouncementAction.updated),
+      ('DEACTIVATED', UrgentAnnouncementAction.deactivated),
+      ('DELETED', UrgentAnnouncementAction.deleted),
+    ]) {
+      test('parses action=$wire', () async {
+        // `eventType` stays the frozen legacy `..._CREATED` literal for every
+        // action — the parser must not be fooled into reading it.
+        final PickerSseUrgentAnnouncement nudge = await nudgeFor(
+          '{"eventType":"URGENT_MANAGER_ANNOUNCEMENT_CREATED",'
+          '"announcementId":99,"targetDomain":"THERMOFORMING",'
+          '"priority":"URGENT","action":"$wire"}',
+        );
+
+        expect(nudge.action, expected);
+        expect(nudge.announcementId, 99);
+      });
+    }
+
+    test('an unrecognised future action value maps to unknown, not created',
+        () async {
+      final PickerSseUrgentAnnouncement nudge = await nudgeFor(
+        '{"announcementId":5,"action":"RETARGETED_SOMEDAY"}',
+      );
+
+      // Distinct from `created`: an absent key means an old backend, an
+      // unknown value means a newer one. Both still nudge a refetch.
+      expect(nudge.action, UrgentAnnouncementAction.unknown);
+      expect(nudge.announcementId, 5);
+    });
+
+    test('a non-string action is ignored and falls back to created', () async {
+      final PickerSseUrgentAnnouncement nudge = await nudgeFor(
+        '{"announcementId":5,"action":7}',
+      );
+
+      expect(nudge.action, UrgentAnnouncementAction.created);
+    });
+
+    test('a malformed body still emits a nudge defaulting to created',
+        () async {
+      final PickerSseUrgentAnnouncement nudge = await nudgeFor('not-json{');
+
+      expect(nudge.action, UrgentAnnouncementAction.created);
+      expect(nudge.announcementId, isNull);
+    });
+
+    test('PRIVACY: no body/sender/title survives even alongside an action',
+        () async {
+      final PickerSseUrgentAnnouncement nudge = await nudgeFor(
+        '{"announcementId":5,"action":"UPDATED",'
+        '"messageBody":"SECRET","senderDisplayName":"المدير أحمد"}',
+      );
+
+      // The event type structurally has nowhere to put content — assert the
+      // parsed object carries only the diagnostic triple.
+      expect(nudge.action, UrgentAnnouncementAction.updated);
+      expect('${nudge.announcementId}${nudge.priority}'.contains('SECRET'),
+          isFalse);
+    });
+  });
+
+  group('UrgentAnnouncementAction.fromWire', () {
+    test('null / empty → created (older backend, §11)', () {
+      expect(
+        UrgentAnnouncementAction.fromWire(null),
+        UrgentAnnouncementAction.created,
+      );
+      expect(
+        UrgentAnnouncementAction.fromWire(''),
+        UrgentAnnouncementAction.created,
+      );
+    });
+
+    test('is case-sensitive — lowercase is not a known value', () {
+      expect(
+        UrgentAnnouncementAction.fromWire('deleted'),
+        UrgentAnnouncementAction.unknown,
+      );
+    });
+
+    test('every enum value round-trips through its wire literal', () {
+      for (final UrgentAnnouncementAction a in UrgentAnnouncementAction.values) {
+        if (a == UrgentAnnouncementAction.unknown) continue;
+        expect(UrgentAnnouncementAction.fromWire(a.wireValue), a);
+      }
+    });
+  });
 
   test(
     'a refresh frame and an urgent frame on one stream route distinctly '

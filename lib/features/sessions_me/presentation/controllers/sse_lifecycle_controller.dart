@@ -105,9 +105,16 @@ class SseLifecycleController extends Notifier<SseLifecycleStatus> {
         sessionsMe.notifySseDisconnected();
       case PickerSseRefreshTriggered():
         sessionsMe.notifyRefreshTrigger();
-      case PickerSseUrgentAnnouncement():
+      case PickerSseUrgentAnnouncement(:final UrgentAnnouncementAction action):
         // Additive + distinct: nudge the announcement notifier only — the
         // existing bootstrap/sessions refresh path is intentionally untouched.
+        //
+        // Every `action` value takes this same branch on purpose (handoff
+        // §11 / §14): the sanitized `/pending` endpoint is authoritative, so
+        // refetching is the correct response to CREATED, UPDATED, DEACTIVATED,
+        // DELETED and any future value alike. The action is logged, not
+        // branched on.
+        refreshLog('sse-lifecycle urgent-announcement nudge (${action.name})');
         announcements.onSseNudge();
     }
   }

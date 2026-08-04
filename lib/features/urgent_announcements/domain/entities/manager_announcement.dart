@@ -18,6 +18,8 @@ class ManagerAnnouncement {
     required this.id,
     this.createdAt,
     this.createdAtDisplay,
+    this.expiresAt,
+    this.expiresAtDisplay,
     this.priority,
   });
 
@@ -32,6 +34,20 @@ class ManagerAnnouncement {
   /// The only server text the UI renders, shown as secondary metadata.
   final String? createdAtDisplay;
 
+  /// Absolute expiry (UTC), or null when the notice never expires
+  /// (timed-announcements handoff §4.2 — also null on a legacy row).
+  ///
+  /// The server already excludes expired rows from `/pending`, so this is
+  /// **not** a filter applied on arrival; it only lets the controller arm a
+  /// one-shot timer so the blocking modal clears at the exact second instead
+  /// of waiting for the next nudge / resume / reconnect.
+  final DateTime? expiresAt;
+
+  /// Pre-formatted Arabic expiry timestamp. Parsed for contract parity and
+  /// diagnostics; deliberately **not** rendered — the modal's visible surface
+  /// stays the two fixed strings plus [createdAtDisplay].
+  final String? expiresAtDisplay;
+
   /// e.g. `"URGENT"` — diagnostic only.
   final String? priority;
 
@@ -41,8 +57,17 @@ class ManagerAnnouncement {
       other.id == id &&
       other.createdAt == createdAt &&
       other.createdAtDisplay == createdAtDisplay &&
+      other.expiresAt == expiresAt &&
+      other.expiresAtDisplay == expiresAtDisplay &&
       other.priority == priority;
 
   @override
-  int get hashCode => Object.hash(id, createdAt, createdAtDisplay, priority);
+  int get hashCode => Object.hash(
+    id,
+    createdAt,
+    createdAtDisplay,
+    expiresAt,
+    expiresAtDisplay,
+    priority,
+  );
 }

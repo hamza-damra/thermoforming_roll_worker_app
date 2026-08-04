@@ -1,6 +1,7 @@
 import '../../../core/api/api_error_parser.dart';
 import '../../../core/errors/app_failure.dart';
 import '../../../core/errors/error_code.dart';
+import '../../../core/errors/failure_classification.dart';
 import '../../../core/storage/secure_token_storage.dart';
 import '../domain/shift_line_summary_repository.dart';
 import 'shift_line_summary_api.dart';
@@ -31,15 +32,10 @@ class ShiftLineSummaryRepositoryImpl implements ShiftLineSummaryRepository {
       return SummarySuccess(dto.toEntity());
     } catch (error, stack) {
       final AppFailure failure = ApiErrorParser.parse(error, stack);
-      if (failure is BusinessFailure) {
-        switch (failure.code) {
-          case ErrorCode.rollWorkerSessionRequired:
-          case ErrorCode.thermoformingShiftLineNotActive:
-          case ErrorCode.thermoformingShiftLineNotFound:
-            await _storage.clearSessionToken(shiftLineId);
-          default:
-            break;
-        }
+      // Only a session/line-state fault invalidates the stored token; a
+      // device-key fault leaves the session valid and must preserve it.
+      if (isSessionLossCascade(failure)) {
+        await _storage.clearSessionToken(shiftLineId);
       }
       return SummaryFailure(failure);
     }

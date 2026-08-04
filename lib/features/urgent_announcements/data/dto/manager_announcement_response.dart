@@ -5,16 +5,23 @@ import '../../domain/entities/manager_announcement.dart';
 /// DTO for one element of `GET /urgent-announcements/pending`'s `data` array.
 ///
 /// PRIVACY (structural): this parser reads **only** `id`, `createdAt`,
-/// `createdAtDisplay`, and `priority`. It deliberately does **not** read
-/// `title`, `message`, `messageBody`, or `senderDisplayName` — even if a
-/// backend bug ever included real manager content in any of those keys, it is
-/// dropped on the floor here and can never reach the entity or the UI.
+/// `createdAtDisplay`, `expiresAt`, `expiresAtDisplay`, and `priority`. It
+/// deliberately does **not** read `title`, `message`, `messageBody`, or
+/// `senderDisplayName` — even if a backend bug ever included real manager
+/// content in any of those keys, it is dropped on the floor here and can never
+/// reach the entity or the UI.
+///
+/// `expiresAt` / `expiresAtDisplay` are additive (timed-announcements handoff
+/// §4.2) and are `null` on a legacy row. The server already excludes expired
+/// rows, so these drive only the exact-second local dismissal.
 @immutable
 class ManagerAnnouncementResponse {
   const ManagerAnnouncementResponse({
     required this.id,
     this.createdAt,
     this.createdAtDisplay,
+    this.expiresAt,
+    this.expiresAtDisplay,
     this.priority,
   });
 
@@ -23,6 +30,8 @@ class ManagerAnnouncementResponse {
       id: _asInt(json['id']) ?? 0,
       createdAt: _asDateTime(json['createdAt']),
       createdAtDisplay: _asString(json['createdAtDisplay']),
+      expiresAt: _asDateTime(json['expiresAt']),
+      expiresAtDisplay: _asString(json['expiresAtDisplay']),
       priority: _asString(json['priority']),
     );
   }
@@ -30,12 +39,16 @@ class ManagerAnnouncementResponse {
   final int id;
   final DateTime? createdAt;
   final String? createdAtDisplay;
+  final DateTime? expiresAt;
+  final String? expiresAtDisplay;
   final String? priority;
 
   ManagerAnnouncement toEntity() => ManagerAnnouncement(
     id: id,
     createdAt: createdAt,
     createdAtDisplay: createdAtDisplay,
+    expiresAt: expiresAt,
+    expiresAtDisplay: expiresAtDisplay,
     priority: priority,
   );
 

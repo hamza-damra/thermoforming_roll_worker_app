@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/diagnostics/refresh_log.dart';
 import '../../../../core/errors/app_failure.dart';
-import '../../../../core/errors/error_code.dart';
+import '../../../../core/errors/failure_classification.dart';
 import '../../../operator_dashboard_sse/domain/entities/operator_dashboard_event.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../data/shift_line_summary_providers.dart';
@@ -97,17 +97,12 @@ class ShiftLineSummaryController
     } else {
       state = SummaryError(failure);
     }
-    if (failure is BusinessFailure) {
-      switch (failure.code) {
-        case ErrorCode.rollWorkerSessionRequired:
-        case ErrorCode.thermoformingShiftLineNotActive:
-        case ErrorCode.thermoformingShiftLineNotFound:
-          await ref
-              .read(multiLineSessionRegistryProvider.notifier)
-              .notifySessionLost(_shiftLineId);
-        default:
-          break;
-      }
+    // A device-key fault is excluded by `isSessionLossCascade` — it leaves the
+    // session valid, so it must not funnel the worker back to the PIN overlay.
+    if (isSessionLossCascade(failure)) {
+      await ref
+          .read(multiLineSessionRegistryProvider.notifier)
+          .notifySessionLost(_shiftLineId);
     }
   }
 

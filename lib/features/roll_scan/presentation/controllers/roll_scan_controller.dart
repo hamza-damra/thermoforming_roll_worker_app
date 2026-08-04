@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/errors/app_failure.dart';
 import '../../../../core/errors/error_code.dart';
+import '../../../../core/errors/failure_classification.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../data/roll_scan_providers.dart';
 import '../../domain/entities/mounted_roll.dart';
@@ -87,16 +88,13 @@ class RollScanController extends FamilyNotifier<RollScanState, int> {
   }) async {
     state = RollScanFailureState(failure: failure, previous: previous);
 
-    if (failure is! BusinessFailure) return;
-    switch (failure.code) {
-      case ErrorCode.rollWorkerSessionRequired:
-      case ErrorCode.thermoformingShiftLineNotActive:
-      case ErrorCode.thermoformingShiftLineNotFound:
-        await ref
-            .read(multiLineSessionRegistryProvider.notifier)
-            .notifySessionLost(_shiftLineId);
-      default:
-        break;
+    // Only a session/line-state fault funnels the worker back to the PIN
+    // overlay. A device-key fault is excluded by `isSessionLossCascade` — the
+    // session is fine and re-authenticating would fix nothing.
+    if (isSessionLossCascade(failure)) {
+      await ref
+          .read(multiLineSessionRegistryProvider.notifier)
+          .notifySessionLost(_shiftLineId);
     }
   }
 }

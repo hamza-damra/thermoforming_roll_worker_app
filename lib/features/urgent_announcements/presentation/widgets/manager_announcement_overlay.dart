@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/errors/app_failure.dart';
+import '../../../../core/errors/error_messages_ar.dart';
+import '../../../../core/errors/failure_classification.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../domain/entities/manager_announcement.dart';
@@ -99,7 +102,7 @@ class ManagerAnnouncementOverlay extends ConsumerWidget {
                       ],
                       if (state.ackError != null) ...<Widget>[
                         const SizedBox(height: 16),
-                        const _AckErrorBox(),
+                        _AckErrorBox(state.ackError!),
                       ],
                       const SizedBox(height: 22),
                       SizedBox(
@@ -155,8 +158,24 @@ class ManagerAnnouncementOverlay extends ConsumerWidget {
 
 /// Inline retry message shown when the ack call fails — mirrors the error box
 /// in `RollWorkerAuthOverlay`.
+///
+/// Most failures are transient, so the default copy tells the worker to tap
+/// again. Two are not, and must read differently (handoff §14): a **device**
+/// fault (`X-Device-Key`) is a configuration problem only a supervisor can
+/// fix, and a **session** fault means re-authenticating. Both come from the
+/// central Arabic mapper — no strings are compared here.
 class _AckErrorBox extends StatelessWidget {
-  const _AckErrorBox();
+  const _AckErrorBox(this.failure);
+
+  final AppFailure failure;
+
+  /// The fixed ack copy is better than the generic retry text for ordinary
+  /// failures, so the mapper is consulted only for the two faults that need a
+  /// different next step.
+  String get _message => isDeviceAuthFault(failure) ||
+          isSessionLossCascade(failure)
+      ? arabicMessageFor(failure)
+      : UrgentAnnouncementStrings.ackError;
 
   @override
   Widget build(BuildContext context) {
@@ -168,14 +187,18 @@ class _AckErrorBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.error.withValues(alpha: 0.25)),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(Icons.error_outline_rounded, size: 20, color: AppColors.error),
-          SizedBox(width: 8),
+          const Icon(
+            Icons.error_outline_rounded,
+            size: 20,
+            color: AppColors.error,
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
-              UrgentAnnouncementStrings.ackError,
+              _message,
               style: AppTextStyles.errorInline,
               textAlign: TextAlign.start,
             ),

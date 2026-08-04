@@ -300,6 +300,77 @@ void main() {
     },
   );
 
+  test(
+    'REGRESSION: a device-key fault (AUTH_INVALID_CREDENTIALS) PRESERVES the '
+    'stored token — it is a configuration fault, not a session loss',
+    () async {
+      stubReadToken(kToken);
+      when(
+        () => dio.post<dynamic>(
+          any<String>(),
+          data: any<Object?>(named: 'data'),
+          options: any<Options>(named: 'options'),
+        ),
+      ).thenThrow(
+        // Same 401 status as a session loss — only the code distinguishes
+        // them (handoff §4.4). Clearing the token here would log the worker
+        // out of a perfectly valid session over a misconfigured device.
+        _businessException(
+          statusCode: 401,
+          code: 'AUTH_INVALID_CREDENTIALS',
+        ),
+      );
+      when(
+        () => rawStorage.delete(key: any<String>(named: 'key')),
+      ).thenAnswer((_) async {});
+
+      final result = await repo.mountRoll(
+        shiftLineId: kShiftLineId,
+        generatedRollId: kRollId,
+      );
+
+      expect(result, isA<RollScanFailure>());
+      expect(
+        ((result as RollScanFailure).failure as BusinessFailure).code,
+        ErrorCode.authInvalidCredentials,
+      );
+      verifyNever(() => rawStorage.delete(key: any<String>(named: 'key')));
+    },
+  );
+
+  test(
+    'ROLL_OP_SESSION_TOKEN_MISSING clears the locally stored token',
+    () async {
+      stubReadToken(kToken);
+      when(
+        () => dio.post<dynamic>(
+          any<String>(),
+          data: any<Object?>(named: 'data'),
+          options: any<Options>(named: 'options'),
+        ),
+      ).thenThrow(
+        // 400, not 401 — proof the branch is on the code, not the status.
+        _businessException(
+          statusCode: 400,
+          code: 'ROLL_OP_SESSION_TOKEN_MISSING',
+        ),
+      );
+      when(
+        () => rawStorage.delete(key: any<String>(named: 'key')),
+      ).thenAnswer((_) async {});
+
+      final result = await repo.mountRoll(
+        shiftLineId: kShiftLineId,
+        generatedRollId: kRollId,
+      );
+
+      expect(result, isA<RollScanFailure>());
+      verify(
+        () => rawStorage.delete(key: 'roll_worker_session_token_$kShiftLineId'),
+      ).called(1);
+    },
+  );
+
   test('network failure preserves the locally stored token', () async {
     stubReadToken(kToken);
     when(

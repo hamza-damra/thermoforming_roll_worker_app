@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/errors/app_failure.dart';
-import '../../../../core/errors/error_code.dart';
+import '../../../../core/errors/failure_classification.dart';
 import '../../../../core/storage/session_index_storage.dart';
 import '../../../../core/storage/storage_providers.dart';
 import '../../../sessions_me/data/sessions_me_providers.dart';
@@ -66,11 +65,14 @@ class MultiLineSessionRegistry
             await _repo.clearStoredToken(id);
           }
         case RollWorkerAuthFailure(:final failure):
-          if (_isCascadeFailure(failure)) {
+          if (isSessionLossCascade(failure)) {
             await _repo.clearStoredToken(id);
           } else {
-            // Transport / server / unknown: keep the id so the next
-            // resume can retry.
+            // Transport / server / device-key / unknown: keep the id so the
+            // next resume can retry. A wrong `X-Device-Key` fails every line
+            // at once and is fixed on the device, not by re-authenticating —
+            // dropping the tokens here would log the worker out of every line
+            // for a fault that has nothing to do with their session.
             retainedOnTransientFailure.add(id);
           }
       }
@@ -323,12 +325,6 @@ class MultiLineSessionRegistry
     return current is RegistryActive ? current.sessions.keys.toSet() : <int>{};
   }
 
-  bool _isCascadeFailure(AppFailure failure) {
-    if (failure is! BusinessFailure) return false;
-    return failure.code == ErrorCode.rollWorkerSessionRequired ||
-        failure.code == ErrorCode.thermoformingShiftLineNotFound ||
-        failure.code == ErrorCode.thermoformingShiftLineNotActive;
-  }
 }
 
 final NotifierProvider<MultiLineSessionRegistry, MultiLineSessionRegistryState>

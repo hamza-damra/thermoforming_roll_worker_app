@@ -350,6 +350,77 @@ void main() {
       },
     );
 
+    test(
+      'REGRESSION: AUTH_INVALID_CREDENTIALS does NOT trigger '
+      'registry.notifySessionLost — a bad device key is not a session loss',
+      () async {
+        final scanRepo = _MockScanRepo();
+        final authRepo = _MockAuthRepo();
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000001',
+          ),
+        ).thenAnswer(
+          (_) async => const RollScanFailure(
+            BusinessFailure(
+              code: ErrorCode.authInvalidCredentials,
+              statusCode: 401,
+            ),
+          ),
+        );
+        when(
+          () => authRepo.clearStoredToken(any<int>()),
+        ).thenAnswer((_) async {});
+        final container = _container(scanRepo: scanRepo, authRepo: authRepo);
+
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000001');
+
+        final state = container.read(rollScanControllerProvider(kShiftLineId));
+        // The failure still surfaces inline so the worker sees the device
+        // message — it just must not bounce them to the PIN screen.
+        expect(state, isA<RollScanFailureState>());
+        expect(
+          ((state as RollScanFailureState).failure as BusinessFailure).code,
+          ErrorCode.authInvalidCredentials,
+        );
+        verifyNever(() => authRepo.clearStoredToken(any<int>()));
+      },
+    );
+
+    test(
+      'ROLL_OP_SESSION_TOKEN_MISSING routes through registry.notifySessionLost',
+      () async {
+        final scanRepo = _MockScanRepo();
+        final authRepo = _MockAuthRepo();
+        when(
+          () => scanRepo.mountRoll(
+            shiftLineId: kShiftLineId,
+            generatedRollId: '777000000001',
+          ),
+        ).thenAnswer(
+          (_) async => const RollScanFailure(
+            BusinessFailure(
+              code: ErrorCode.rollOpSessionTokenMissing,
+              statusCode: 400,
+            ),
+          ),
+        );
+        when(
+          () => authRepo.clearStoredToken(kShiftLineId),
+        ).thenAnswer((_) async {});
+        final container = _container(scanRepo: scanRepo, authRepo: authRepo);
+
+        await container
+            .read(rollScanControllerProvider(kShiftLineId).notifier)
+            .mountRoll('777000000001');
+
+        verify(() => authRepo.clearStoredToken(kShiftLineId)).called(1);
+      },
+    );
+
     test('clearError restores previously-mounted state when present', () async {
       final scanRepo = _MockScanRepo();
       when(

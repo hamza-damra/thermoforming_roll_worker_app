@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/errors/app_failure.dart';
-import '../../../../core/errors/error_code.dart';
+import '../../../../core/errors/failure_classification.dart';
 import '../../../../core/errors/error_messages_ar.dart';
 import '../../../printer/core/printing_constants.dart';
 import '../../../printer/core/printing_exception.dart';
@@ -218,18 +218,11 @@ class LabelReprintController extends FamilyNotifier<LabelReprintState, int> {
     // line ended". A reprint returning NOT_ACTIVE / NOT_FOUND for this
     // shift-line is the backend confirming the line is gone, so the registry
     // entry must be released too (it previously lingered as a zombie line).
-    if (failure is BusinessFailure) {
-      switch (failure.code) {
-        case ErrorCode.rollWorkerSessionRequired:
-        case ErrorCode.thermoformingShiftLineNotActive:
-        case ErrorCode.thermoformingShiftLineNotFound:
-          // Cascade snackbar fires via the bootstrap listener.
-          await ref
-              .read(multiLineSessionRegistryProvider.notifier)
-              .notifySessionLost(_shiftLineId);
-        default:
-          break;
-      }
+    if (isSessionLossCascade(failure)) {
+      // Cascade snackbar fires via the bootstrap listener.
+      await ref
+          .read(multiLineSessionRegistryProvider.notifier)
+          .notifySessionLost(_shiftLineId);
     }
   }
 }
