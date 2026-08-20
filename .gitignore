@@ -77,3 +77,7 @@ Desktop.ini
 # (kept committed by default; uncomment if you switch to ignored generated files)
 # **/*.g.dart
 # **/*.freezed.dart
+
+# Gradle build output
+android/build/
+android/**/build/
