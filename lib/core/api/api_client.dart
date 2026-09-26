@@ -20,7 +20,9 @@ import 'session_token_interceptor.dart';
 ///   staging hosts. Production hosts are never covered.
 ///
 /// Exposed through `api_providers.dart` so the rest of the app gets a
-/// single configured instance — REST and SSE share it.
+/// single configured instance — REST and SSE share it. The one exception is
+/// the unauthenticated biometric attempt-status long-poll, which gets its own
+/// client from [createBiometricStatus].
 class ApiClientFactory {
   ApiClientFactory._();
 
@@ -30,7 +32,33 @@ class ApiClientFactory {
   static const Duration receiveTimeout = Duration(seconds: 30);
   static const Duration sendTimeout = Duration(seconds: 30);
 
+  /// Receive timeout for the biometric attempt-status long-poll. The server
+  /// holds each request up to 25 s; the handoff asks for at least 35 s so a
+  /// held request is never cut off client-side.
+  static const Duration biometricStatusReceiveTimeout = Duration(seconds: 40);
+
   static Dio create(AppConfig config) {
+    final Dio dio = _base(config, receiveTimeout: receiveTimeout);
+    dio.interceptors
+      ..add(DeviceKeyInterceptor(config.deviceKey))
+      ..add(SessionTokenInterceptor())
+      ..add(RedactingLoggerInterceptor(enabled: kDebugMode));
+    return dio;
+  }
+
+  /// A second client for `GET /api/v1/auth/biometric/login-attempts/status`
+  /// only. Same base URL (the handoff resolves `details.statusPath` against
+  /// the login's base URL) and TLS policy, but that endpoint is
+  /// unauthenticated: it must carry neither `X-Device-Key` nor a session
+  /// token, so neither interceptor is installed. The attempt token travels in
+  /// a per-request header that the logger redacts.
+  static Dio createBiometricStatus(AppConfig config) {
+    final Dio dio = _base(config, receiveTimeout: biometricStatusReceiveTimeout);
+    dio.interceptors.add(RedactingLoggerInterceptor(enabled: kDebugMode));
+    return dio;
+  }
+
+  static Dio _base(AppConfig config, {required Duration receiveTimeout}) {
     if (config.isMissing) {
       throw StateError(
         'ApiClientFactory.create called with missing config. '
@@ -61,11 +89,6 @@ class ApiClientFactory {
         },
       );
     }
-
-    dio.interceptors
-      ..add(DeviceKeyInterceptor(config.deviceKey))
-      ..add(SessionTokenInterceptor())
-      ..add(RedactingLoggerInterceptor(enabled: kDebugMode));
 
     return dio;
   }

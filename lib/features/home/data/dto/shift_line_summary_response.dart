@@ -200,6 +200,7 @@ class ShiftLineSummaryResponse {
     required this.thermoformingLineName,
     required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
+    this.thermoformingLineDisplayName,
     this.consumedWeightKgInSession,
     this.rollsContributedInSession = 0,
     this.consumedRolls = const <ConsumedRollResponse>[],
@@ -220,8 +221,14 @@ class ShiftLineSummaryResponse {
     final Object? mountedRollJson = json['mountedRoll'];
     return ShiftLineSummaryResponse(
       shiftLineId: json['shiftLineId'] as int,
-      thermoformingLineCode: json['thermoformingLineCode'] as String,
-      thermoformingLineName: json['thermoformingLineName'] as String,
+      // Line identity fields are parsed tolerantly: absent and `null` read
+      // the same, and none of them is UI text (labels come from
+      // `palletizingLineName`, see `LineLabels`).
+      thermoformingLineCode: _asString(json['thermoformingLineCode']),
+      thermoformingLineName: _asString(json['thermoformingLineName']),
+      thermoformingLineDisplayName: _asString(
+        json['thermoformingLineDisplayName'],
+      ),
       completedRollsInSession: json['completedRollsInSession'] as int,
       completedRollsByCurrentWorker:
           json['completedRollsByCurrentWorker'] as int,
@@ -254,8 +261,11 @@ class ShiftLineSummaryResponse {
   }
 
   final int shiftLineId;
-  final String thermoformingLineCode;
-  final String thermoformingLineName;
+  final String? thermoformingLineCode;
+  final String? thermoformingLineName;
+
+  /// Curated Roll Worker machine name (`ماكينة C`); `null` on older backends.
+  final String? thermoformingLineDisplayName;
   final int completedRollsInSession;
   final int completedRollsByCurrentWorker;
 
@@ -295,6 +305,7 @@ class ShiftLineSummaryResponse {
     shiftLineId: shiftLineId,
     thermoformingLineCode: thermoformingLineCode,
     thermoformingLineName: thermoformingLineName,
+    thermoformingLineDisplayName: thermoformingLineDisplayName,
     completedRollsInSession: completedRollsInSession,
     completedRollsByCurrentWorker: completedRollsByCurrentWorker,
     consumedWeightKgInSession: consumedWeightKgInSession,

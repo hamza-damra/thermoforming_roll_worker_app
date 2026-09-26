@@ -2,14 +2,23 @@ import 'dart:developer' as developer;
 
 import 'package:dio/dio.dart';
 
+import 'biometric_attempt_token.dart';
 import 'device_key_interceptor.dart';
 import 'session_token_interceptor.dart';
 
+/// Where [RedactingLoggerInterceptor] writes. Defaults to `dart:developer`'s
+/// `log`; tests pass a capturing sink to assert secrets never reach it.
+typedef HttpLogSink = void Function(String message);
+
+void _developerLogSink(String message) =>
+    developer.log(message, name: 'roll_worker.http');
+
 /// Lightweight HTTP logger that redacts every secret before printing.
 ///
-/// Headers redacted:
+/// Headers redacted (matched case-insensitively):
 ///   - `X-Device-Key`
 ///   - `X-Session-Token`
+///   - `X-Biometric-Attempt-Token`
 ///   - `Authorization`
 ///   - `Cookie` / `Set-Cookie`
 ///
@@ -21,23 +30,25 @@ import 'session_token_interceptor.dart';
 ///
 /// Disabled by default; enable in debug builds via the constructor flag.
 class RedactingLoggerInterceptor extends Interceptor {
-  RedactingLoggerInterceptor({this.enabled = false});
+  RedactingLoggerInterceptor({this.enabled = false, HttpLogSink? sink})
+    : _sink = sink ?? _developerLogSink;
 
   /// Toggle by build mode (e.g. `kDebugMode`). Off by default for safety.
   final bool enabled;
 
+  final HttpLogSink _sink;
+
   static const String _redacted = '<redacted>';
 
-  static const Set<String> _redactedHeaders = <String>{
+  /// Lower-cased: header names are case-insensitive on the wire.
+  static final Set<String> _redactedHeaders = <String>{
     DeviceKeyInterceptor.headerName,
     SessionTokenInterceptor.headerName,
+    BiometricAttemptToken.headerName,
     'Authorization',
-    'authorization',
     'Cookie',
-    'cookie',
     'Set-Cookie',
-    'set-cookie',
-  };
+  }.map((String h) => h.toLowerCase()).toSet();
 
   static const Set<String> _redactedBodyFields = <String>{
     'pin',
@@ -48,11 +59,10 @@ class RedactingLoggerInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     if (enabled) {
-      developer.log(
+      _sink(
         '→ ${options.method} ${options.uri}\n'
         '  headers: ${_redactHeaders(options.headers)}\n'
         '  body:    ${_redactBody(options.data)}',
-        name: 'roll_worker.http',
       );
     }
     handler.next(options);
@@ -64,10 +74,7 @@ class RedactingLoggerInterceptor extends Interceptor {
     ResponseInterceptorHandler handler,
   ) {
     if (enabled) {
-      developer.log(
-        '← ${response.statusCode} ${response.requestOptions.uri}',
-        name: 'roll_worker.http',
-      );
+      _sink('← ${response.statusCode} ${response.requestOptions.uri}');
     }
     handler.next(response);
   }
@@ -75,10 +82,9 @@ class RedactingLoggerInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     if (enabled) {
-      developer.log(
+      _sink(
         '✗ ${err.response?.statusCode ?? '-'} ${err.requestOptions.uri} '
         '(${err.type.name})',
-        name: 'roll_worker.http',
       );
     }
     handler.next(err);
@@ -87,7 +93,9 @@ class RedactingLoggerInterceptor extends Interceptor {
   static Map<String, Object?> _redactHeaders(Map<String, dynamic> headers) {
     final Map<String, Object?> out = <String, Object?>{};
     headers.forEach((String key, dynamic value) {
-      out[key] = _redactedHeaders.contains(key) ? _redacted : value;
+      out[key] = _redactedHeaders.contains(key.toLowerCase())
+          ? _redacted
+          : value;
     });
     return out;
   }

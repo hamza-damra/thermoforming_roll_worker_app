@@ -51,11 +51,15 @@ class _ScriptedSseSource implements SseByteStreamSource {
   final List<StreamController<List<int>>> controllers =
       <StreamController<List<int>>>[];
 
+  /// The `lineId` path parameter of every stream opened, in order.
+  final List<int> openedLineIds = <int>[];
+
   @override
   Future<Stream<List<int>>> open({
     required int lineId,
     required String sessionToken,
   }) async {
+    openedLineIds.add(lineId);
     final controller = StreamController<List<int>>();
     controllers.add(controller);
     return controller.stream;
@@ -332,4 +336,60 @@ void main() {
       reason: 'no new poll timer while the cadence tier is unchanged',
     );
   });
+
+  test(
+    'LINE_3: a machine C session opens the per-line stream with palletizing '
+    'line 3 — never machine id 4 or the shift-line id',
+    () async {
+      const int shiftLineId = 9123;
+      when(
+        () => repo.fetchSummary(shiftLineId: shiftLineId),
+      ).thenAnswer((_) async => SummarySuccess(served));
+      final source = _ScriptedSseSource();
+      final container = ProviderContainer(
+        overrides: <Override>[
+          shiftLineSummaryRepositoryProvider.overrideWithValue(repo),
+          multiLineSessionRegistryProvider.overrideWith(
+            _MachineCRegistry.new,
+          ),
+          operatorDashboardSseClientForLineProvider(
+            shiftLineId,
+          ).overrideWithValue(_client(source)),
+          operatorDashboardPollConfigProvider.overrideWithValue(
+            _eventDrivenConfig,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(operatorDashboardSyncControllerProvider(shiftLineId).notifier)
+          .start();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(source.openedLineIds, <int>[3]);
+    },
+  );
+}
+
+/// Machine C as production has it after V191: machine id 4 feeds palletizing
+/// line 3; the shift-line id is unrelated to both.
+class _MachineCRegistry extends MultiLineSessionRegistry {
+  @override
+  MultiLineSessionRegistryState build() => RegistryActive(
+    sessions: <int, RollWorkerSession>{
+      9123: RollWorkerSession(
+        sessionId: 40211,
+        rollWorkerOperatorId: 77,
+        rollWorkerName: 'Worker',
+        thermoformingShiftId: 5052,
+        thermoformingShiftLineId: 9123,
+        thermoformingLineId: 4,
+        palletizingLineId: 3,
+        startedAt: DateTime.utc(2026, 9, 15, 8, 10),
+      ),
+    },
+    activeShiftLineId: 9123,
+    logoutStatus: const <int, LineLogoutStatus>{9123: LineLogoutStatus.idle},
+  );
 }

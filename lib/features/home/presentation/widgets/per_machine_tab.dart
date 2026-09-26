@@ -25,7 +25,6 @@ class PerMachineTab extends ConsumerStatefulWidget {
     super.key,
     required this.kind,
     required this.shiftLineId,
-    required this.lineIndex,
     required this.accent,
     required this.line,
     this.lineLabel,
@@ -39,10 +38,10 @@ class PerMachineTab extends ConsumerStatefulWidget {
 
   /// Non-null for [MachineTabKind.authorized] and [MachineTabKind.needsAuth].
   final int? shiftLineId;
-  final int lineIndex;
 
-  /// Backend-derived line label (`خط أ`, `خط ب`, …) for the in-dashboard
-  /// header. Falls back to the line index when absent.
+  /// Server line label (`خط أ`, `خط ب`, `خط ج`, …) for the in-dashboard
+  /// header and leave dialog; `null` while none is known. Never computed
+  /// locally — see `LineLabels`.
   final String? lineLabel;
 
   /// Forwarded to the dashboard: show the in-body line header only when the
@@ -76,7 +75,6 @@ class _PerMachineTabState extends ConsumerState<PerMachineTab>
       case MachineTabKind.authorized:
         return RollWorkerHomeScreen(
           shiftLineId: widget.shiftLineId!,
-          lineIndex: widget.lineIndex,
           lineLabel: widget.lineLabel,
           showLineHeader: widget.showLineHeader,
           standaloneScaffold: false,
@@ -90,6 +88,7 @@ class _PerMachineTabState extends ConsumerState<PerMachineTab>
               child: RollWorkerAuthOverlay(
                 shiftLineId: widget.shiftLineId!,
                 accentColor: widget.accent,
+                onLineStale: _refreshBootstrap,
               ),
             ),
           ],
@@ -103,14 +102,18 @@ class _PerMachineTabState extends ConsumerState<PerMachineTab>
                 title: widget.waitingTitle,
                 message: widget.waitingMessage,
                 showWaitingRow: widget.waitingShowSpinner,
-                onRefresh: () => ref
-                    .read(rollWorkerBootstrapControllerProvider.notifier)
-                    .refresh(trigger: 'waiting-refresh', background: true),
+                onRefresh: () => _refreshBootstrap(trigger: 'waiting-refresh'),
               ),
             ),
           ],
         );
     }
+  }
+
+  void _refreshBootstrap({String trigger = 'pin-line-stale'}) {
+    ref
+        .read(rollWorkerBootstrapControllerProvider.notifier)
+        .refresh(trigger: trigger, background: true);
   }
 
   /// The dashboard backdrop shown behind a blocking overlay: the read-only

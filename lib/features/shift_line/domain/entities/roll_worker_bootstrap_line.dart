@@ -43,22 +43,35 @@ class RollWorkerBootstrapLine {
     required this.takeoverIncomingOperatorName,
     required this.lineLifecycleStatus,
     required this.updatedAt,
+    this.lineDisplayName,
   });
 
   /// Stable machine-keyed row id. Picker rows are keyed by this — never by
   /// [shiftLineId], which is `null` until an operator activates the machine.
   final int thermoformingLineId;
 
+  /// `TF_LINE_n` business code and raw stored machine name
+  /// (`خط التشغيل ج`). Logs and tests only — never UI text.
   final String lineCode;
   final String lineName;
+
+  /// Curated Roll Worker machine name (`ماكينة C`). Not a UI label under the
+  /// D1 decision — tabs use [palletizingLineName] (see `LineLabels`).
+  final String? lineDisplayName;
+
+  /// `ProductionLine.lineNumber` (1/2/3). Not a label source, sort key or id.
   final int? machineNumber;
 
+  /// ProductionLine id. On production LINE_3 this is 3 while
+  /// [thermoformingLineId] is 4 — never compare or substitute the two.
   final int? palletizingLineId;
 
   /// Alias of [palletizingLineId] — kept distinct in case the backend ever
   /// diverges them.
   final int? productionLineId;
   final String? palletizingLineCode;
+
+  /// Server line label (`خط أ` / `خط ب` / `خط ج`) — the tab label (D1).
   final String? palletizingLineName;
 
   /// Internal id of the active thermoforming shift-line allocation, or `null`
@@ -66,7 +79,9 @@ class RollWorkerBootstrapLine {
   final int? shiftLineId;
   final int? thermoformingShiftId;
 
-  /// Current product on the line; `null` when no product has been chosen.
+  /// Current production-plan item product on the line (wire keys
+  /// `currentPlanItemProductTypeId` / `currentPlanItemProductName`); `null`
+  /// when the line has no current plan item.
   final int? currentProductTypeId;
   final String? currentProductTypeName;
 
@@ -112,6 +127,7 @@ class RollWorkerBootstrapLine {
         other.thermoformingLineId == thermoformingLineId &&
         other.lineCode == lineCode &&
         other.lineName == lineName &&
+        other.lineDisplayName == lineDisplayName &&
         other.machineNumber == machineNumber &&
         other.palletizingLineId == palletizingLineId &&
         other.productionLineId == productionLineId &&
@@ -144,6 +160,7 @@ class RollWorkerBootstrapLine {
     thermoformingLineId,
     lineCode,
     lineName,
+    lineDisplayName,
     machineNumber,
     palletizingLineId,
     productionLineId,

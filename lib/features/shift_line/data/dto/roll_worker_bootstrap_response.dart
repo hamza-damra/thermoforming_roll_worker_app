@@ -14,6 +14,7 @@ class RollWorkerBootstrapLineDto {
     required this.thermoformingLineId,
     required this.lineCode,
     required this.lineName,
+    required this.lineDisplayName,
     required this.machineNumber,
     required this.palletizingLineId,
     required this.productionLineId,
@@ -47,6 +48,7 @@ class RollWorkerBootstrapLineDto {
       thermoformingLineId: _asInt(json['thermoformingLineId']) ?? 0,
       lineCode: _asString(json['lineCode']) ?? '',
       lineName: _asString(json['lineName']) ?? '',
+      lineDisplayName: _asString(json['lineDisplayName']),
       machineNumber: _asInt(json['machineNumber']),
       palletizingLineId: _asInt(json['palletizingLineId']),
       productionLineId:
@@ -55,8 +57,15 @@ class RollWorkerBootstrapLineDto {
       palletizingLineName: _asString(json['palletizingLineName']),
       shiftLineId: _asInt(json['shiftLineId']),
       thermoformingShiftId: _asInt(json['thermoformingShiftId']),
-      currentProductTypeId: _asInt(json['currentProductTypeId']),
-      currentProductTypeName: _asString(json['currentProductTypeName']),
+      // The backend renamed these to `currentPlanItemProduct*` (the line's
+      // current production-plan item); the legacy keys are read only as a
+      // fallback for an older backend.
+      currentProductTypeId:
+          _asInt(json['currentPlanItemProductTypeId']) ??
+          _asInt(json['currentProductTypeId']),
+      currentProductTypeName:
+          _asString(json['currentPlanItemProductName']) ??
+          _asString(json['currentProductTypeName']),
       activeOperatorId: _asInt(json['activeOperatorId']),
       activeOperatorName: _asString(json['activeOperatorName']),
       currentRollId: _asInt(json['currentRollId']),
@@ -87,6 +96,10 @@ class RollWorkerBootstrapLineDto {
   final int thermoformingLineId;
   final String lineCode;
   final String lineName;
+
+  /// Curated Roll Worker machine name (`ماكينة C`). Parsed for completeness;
+  /// not a UI label under D1 — see `LineLabels`.
+  final String? lineDisplayName;
   final int? machineNumber;
   final int? palletizingLineId;
   final int? productionLineId;
@@ -120,6 +133,7 @@ class RollWorkerBootstrapLineDto {
     thermoformingLineId: thermoformingLineId,
     lineCode: lineCode,
     lineName: lineName,
+    lineDisplayName: lineDisplayName,
     machineNumber: machineNumber,
     palletizingLineId: palletizingLineId,
     productionLineId: productionLineId,

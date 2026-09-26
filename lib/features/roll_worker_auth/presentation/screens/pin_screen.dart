@@ -12,6 +12,7 @@ import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/inline_error.dart';
 import '../controllers/batch_auth_controller.dart';
 import '../controllers/batch_auth_state.dart';
+import '../widgets/biometric_login_gate.dart';
 import '../widgets/pin_input.dart';
 
 /// Multi-line batch session-start PIN entry.
@@ -42,6 +43,7 @@ class PinScreen extends ConsumerStatefulWidget {
 
 class _PinScreenState extends ConsumerState<PinScreen> {
   final TextEditingController _pinController = TextEditingController();
+  bool _biometricGateOpen = false;
 
   static const Set<ErrorCode> _perLineCodes = <ErrorCode>{
     ErrorCode.thermoformingShiftLineNotFound,
@@ -61,7 +63,7 @@ class _PinScreenState extends ConsumerState<PinScreen> {
 
   void _submit() {
     final BatchAuthState s = ref.read(batchAuthControllerProvider);
-    if (s is BatchAuthSubmitting) return;
+    if (s is BatchAuthSubmitting || s is BatchAuthBiometricRequired) return;
     final String pin = _pinController.text.trim();
     if (pin.isEmpty) return;
     ref
@@ -70,6 +72,20 @@ class _PinScreenState extends ConsumerState<PinScreen> {
   }
 
   void _onAuthStateChanged(BatchAuthState? prev, BatchAuthState next) {
+    // PIN accepted, fingerprint needed: run the dialog. Its outcome lands
+    // back here as BatchAuthSuccess / BatchAuthFailure (dialog already
+    // closed), or BatchAuthInitial on cancel — which re-enables the form.
+    if (next is BatchAuthBiometricRequired) {
+      if (_biometricGateOpen) return;
+      _biometricGateOpen = true;
+      _pinController.clear();
+      runBiometricLoginGate(
+        context,
+        ref,
+        next,
+      ).whenComplete(() => _biometricGateOpen = false);
+      return;
+    }
     // Success: registry has been seeded; pop so the bootstrap re-renders
     // into the multi-line home.
     if (next is BatchAuthSuccess) {
@@ -93,7 +109,9 @@ class _PinScreenState extends ConsumerState<PinScreen> {
     );
     final BatchAuthState authState = ref.watch(batchAuthControllerProvider);
 
-    final bool authenticating = authState is BatchAuthSubmitting;
+    final bool authenticating =
+        authState is BatchAuthSubmitting ||
+        authState is BatchAuthBiometricRequired;
     final AppFailure? failure = authState is BatchAuthFailure
         ? authState.failure
         : null;

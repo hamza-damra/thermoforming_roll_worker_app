@@ -7,6 +7,7 @@ import '../../../../core/ui/line_labels.dart';
 import '../../../../core/widgets/app_secondary_button.dart';
 import '../../../../core/widgets/inline_error.dart';
 import '../../../printer/presentation/screens/printer_settings_screen.dart';
+import '../../../roll_worker_auth/domain/entities/roll_worker_session.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry.dart';
 import '../../../roll_worker_auth/presentation/controllers/multi_line_session_registry_state.dart';
 import '../../../sessions_me/domain/entities/roll_worker_active_line.dart';
@@ -31,8 +32,16 @@ import 'roll_worker_home_screen.dart';
 ///
 /// The tab list is the union of `/bootstrap` machines and any active
 /// registry session (so a freshly-authorized line keeps its tab even if a
-/// `/bootstrap` refresh is momentarily behind). Per-machine accent colors and
-/// state (authorized / needs-auth / waiting) are resolved per tab.
+/// `/bootstrap` refresh is momentarily behind, or after its machine left
+/// `/bootstrap` mid-shift). Per-machine accent colors and state (authorized /
+/// needs-auth / waiting) are resolved per tab.
+///
+/// Identity rules (LINE_3 handoff): a tab *is* a machine, keyed by
+/// `thermoformingLineId`, so an operator claiming or releasing a machine never
+/// moves the selection. Labels are the server's `palletizingLineName`, never
+/// computed (see [LineLabels]). The id spaces are never mixed: on production
+/// LINE_3 the machine id is 4, the palletizing-line id 3, and shift-line ids
+/// are unrelated to both.
 class MachineDashboardShell extends ConsumerStatefulWidget {
   const MachineDashboardShell({super.key});
 
@@ -50,8 +59,25 @@ class MachineDashboardShell extends ConsumerStatefulWidget {
 class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
     with TickerProviderStateMixin {
   TabController? _controller;
+
+  /// Tab identities ([_MachineTab.identity]) the controller was built for.
   List<String> _controllerKeys = const <String>[];
   List<_MachineTab> _tabs = const <_MachineTab>[];
+
+  /// Last server label per machine (`thermoformingLineId`), from every
+  /// `/bootstrap` and `/sessions/me` row seen. Survives the machine leaving
+  /// `/bootstrap` (e.g. LINE_3 disabled mid-shift), so its session-only tab
+  /// keeps the same label.
+  final Map<int, String> _labelByMachine = <int, String>{};
+
+  /// Last-known server order of machines (`thermoformingLineId`s in
+  /// `/bootstrap` array order). A machine that leaves `/bootstrap` keeps its
+  /// slot, so a session-only tab stays where the worker last saw it.
+  List<int> _machineOrder = const <int>[];
+
+  /// Memo for [_tabLabelsFit]: the shell rebuilds on every tab-swipe frame.
+  String? _fitKey;
+  bool _fitValue = true;
 
   @override
   void dispose() {
@@ -118,8 +144,15 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
       }
     }
 
-    if (activeShiftLineId != null) {
-      return AppColors.accentForLine(thermoformingLineId: activeShiftLineId);
+    final RollWorkerSession? activeSession =
+        registry is RegistryActive && activeShiftLineId != null
+        ? registry.sessions[activeShiftLineId]
+        : null;
+    if (activeSession != null) {
+      return AppColors.accentForLine(
+        palletizingLineId: activeSession.palletizingLineId,
+        thermoformingLineId: activeSession.thermoformingLineId,
+      );
     }
 
     if (lines.isNotEmpty) {
@@ -145,18 +178,59 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
     };
   }
 
-  RollWorkerActiveLine? _meLineFor(SessionsMeState meState, int shiftLineId) {
-    final List<RollWorkerActiveLine>? lines = switch (meState) {
+  List<RollWorkerActiveLine> _meLinesFrom(SessionsMeState meState) {
+    return switch (meState) {
       SessionsMeLoaded(:final me) => me.lines,
       SessionsMeLoading(previous: final me?) => me.lines,
       SessionsMeError(previous: final me?) => me.lines,
-      _ => null,
+      _ => const <RollWorkerActiveLine>[],
     };
-    if (lines == null) return null;
-    for (final RollWorkerActiveLine line in lines) {
-      if (line.shiftLineId == shiftLineId) return line;
+  }
+
+  /// Records the server label and order of every machine in this snapshot.
+  void _rememberMachines(
+    List<RollWorkerBootstrapLine> lines,
+    List<RollWorkerActiveLine> meLines,
+  ) {
+    for (final RollWorkerActiveLine l in meLines) {
+      final int? machineId = l.thermoformingLineId;
+      final String? label = LineLabels.fromServer(l.palletizingLineName);
+      if (machineId != null && label != null) {
+        _labelByMachine[machineId] = label;
+      }
     }
-    return null;
+    for (final RollWorkerBootstrapLine l in lines) {
+      final String? label = LineLabels.fromServer(l.palletizingLineName);
+      if (label != null) _labelByMachine[l.thermoformingLineId] = label;
+    }
+    _machineOrder = _mergeOrder(_machineOrder, <int>[
+      for (final RollWorkerBootstrapLine l in lines) l.thermoformingLineId,
+    ]);
+  }
+
+  /// Merges the latest `/bootstrap` order into the known order: the result
+  /// follows [latest] exactly for the machines it lists, and keeps each
+  /// machine missing from it at its previous relative position.
+  static List<int> _mergeOrder(List<int> known, List<int> latest) {
+    final Set<int> latestSet = latest.toSet();
+    final List<int> merged = <int>[];
+    int next = 0;
+    for (final int id in known) {
+      if (!latestSet.contains(id)) {
+        merged.add(id);
+        continue;
+      }
+      while (next < latest.length) {
+        final int b = latest[next++];
+        if (!merged.contains(b)) merged.add(b);
+        if (b == id) break;
+      }
+    }
+    while (next < latest.length) {
+      final int b = latest[next++];
+      if (!merged.contains(b)) merged.add(b);
+    }
+    return merged;
   }
 
   List<_MachineTab> _buildTabs(
@@ -164,24 +238,20 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
     MultiLineSessionRegistryState registry,
     SessionsMeState meState,
   ) {
-    final Set<int> sessionIds = registry is RegistryActive
-        ? registry.sessions.keys.toSet()
-        : const <int>{};
+    final Map<int, RollWorkerSession> sessions = registry is RegistryActive
+        ? registry.sessions
+        : const <int, RollWorkerSession>{};
+    final List<RollWorkerActiveLine> meLines = _meLinesFrom(meState);
+    _rememberMachines(lines, meLines);
 
     final List<_MachineTab> tabs = <_MachineTab>[];
     final Set<int> bootstrapShiftLineIds = <int>{};
-    int index = 0;
+    final Set<String> identities = <String>{};
 
     for (final RollWorkerBootstrapLine line in lines) {
-      index += 1;
       final int? sid = line.shiftLineId;
       if (sid != null) bootstrapShiftLineIds.add(sid);
-      final Color accent = AppColors.accentForLine(
-        palletizingLineId: line.palletizingLineId,
-        thermoformingLineId: line.thermoformingLineId,
-        palletizingLineCode: line.palletizingLineCode,
-      );
-      final bool authorized = sid != null && sessionIds.contains(sid);
+      final bool authorized = sid != null && sessions.containsKey(sid);
       final MachineTabKind kind;
       if (authorized) {
         kind = MachineTabKind.authorized;
@@ -190,26 +260,26 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
       } else {
         kind = MachineTabKind.waiting;
       }
-      // Label by backend line number (`machineNumber`), not tab index — only
-      // falling back to the position when the backend supplies no number.
-      final String lineLabel = LineLabels.label(
-        lineNumber: line.machineNumber,
-        fallbackIndex: index,
-      );
+      final String identity = 'th-${line.thermoformingLineId}';
+      identities.add(identity);
       tabs.add(
         _MachineTab(
-          // Key by the operator shift-line/session (`shiftLineId`), NOT the
-          // physical line, so a session change (new `shiftLineId` on the same
-          // physical line) gives the tab a fresh ValueKey — tearing down the
-          // kept-alive RollWorkerHomeScreen and forcing a fresh summary load
-          // for the new scope, with no consumed kg/list leaking from the old
-          // session. Falls back to the physical-line key only when there is no
-          // session yet (waiting tab). Matches the registry-only `sl-$sid` key.
-          key: sid != null ? 'sl-$sid' : 'th-${line.thermoformingLineId}',
+          identity: identity,
+          // The page key adds the operator shift-line/session (`shiftLineId`),
+          // so a session change on the same machine (new `shiftLineId`) gives
+          // the page a fresh ValueKey — tearing down the kept-alive
+          // RollWorkerHomeScreen and forcing a fresh summary load for the new
+          // scope, with no consumed kg/list leaking from the old session. The
+          // tab identity itself stays the machine, so selection never moves.
+          key: sid == null ? identity : '$identity/sl-$sid',
+          machineId: line.thermoformingLineId,
           shiftLineId: sid,
-          oneBasedIndex: index,
-          label: lineLabel,
-          accent: accent,
+          label: _labelFor(line.thermoformingLineId),
+          accent: AppColors.accentForLine(
+            palletizingLineId: line.palletizingLineId,
+            thermoformingLineId: line.thermoformingLineId,
+            palletizingLineCode: line.palletizingLineCode,
+          ),
           kind: kind,
           line: line,
           waitingTitle: LineWaitingStatus.dialogTitle,
@@ -219,52 +289,101 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
       );
     }
 
-    // Registry-only sessions with no `/bootstrap` row yet (e.g. the list is
-    // momentarily behind a just-completed login). Always render their tab so
-    // the authorized dashboard is reachable.
-    if (registry is RegistryActive) {
-      for (final int sid in registry.sessions.keys) {
-        if (bootstrapShiftLineIds.contains(sid)) continue;
-        index += 1;
-        final RollWorkerActiveLine? meLine = _meLineFor(meState, sid);
-        final Color accent = meLine?.accentColor ??
-            AppColors.accentForLine(thermoformingLineId: sid);
-        tabs.add(
-          _MachineTab(
-            key: 'sl-$sid',
-            shiftLineId: sid,
-            oneBasedIndex: index,
-            label: LineLabels.label(fallbackIndex: index),
-            accent: accent,
-            kind: MachineTabKind.authorized,
-            line: null,
+    // Registry sessions with no `/bootstrap` row: the list is momentarily
+    // behind a just-completed login, or the machine left `/bootstrap` while
+    // the worker still holds a session on it (LINE_3 disabled mid-shift —
+    // roll actions keep working). Always render their tab so the authorized
+    // dashboard stays reachable; only `/sessions/me` ends a session. Identity,
+    // label and colour come from the machine's own ids (`/sessions/me` row,
+    // else the start-batch session) — never from the shift-line id.
+    for (final MapEntry<int, RollWorkerSession> entry in sessions.entries) {
+      final int sid = entry.key;
+      if (bootstrapShiftLineIds.contains(sid)) continue;
+      final RollWorkerActiveLine? meLine = _meLineFor(meLines, sid);
+      final int machineId =
+          meLine?.thermoformingLineId ?? entry.value.thermoformingLineId;
+      // A machine already tabbed from `/bootstrap` under another shift-line
+      // (a stale session awaiting `/sessions/me` reconciliation) keeps that
+      // tab; this session gets its own identity so identities stay unique.
+      String identity = 'th-$machineId';
+      if (identities.contains(identity)) identity = 'sl-$sid';
+      identities.add(identity);
+      tabs.add(
+        _MachineTab(
+          identity: identity,
+          key: identity == 'sl-$sid' ? identity : '$identity/sl-$sid',
+          machineId: machineId,
+          shiftLineId: sid,
+          label: _labelFor(machineId),
+          accent: AppColors.accentForLine(
+            palletizingLineId:
+                meLine?.palletizingLineId ?? entry.value.palletizingLineId,
+            thermoformingLineId: machineId,
+            palletizingLineCode: meLine?.palletizingLineCode,
           ),
-        );
-      }
+          kind: MachineTabKind.authorized,
+          line: null,
+        ),
+      );
     }
 
-    return tabs;
+    return _inMachineOrder(tabs);
+  }
+
+  RollWorkerActiveLine? _meLineFor(
+    List<RollWorkerActiveLine> meLines,
+    int shiftLineId,
+  ) {
+    for (final RollWorkerActiveLine line in meLines) {
+      if (line.shiftLineId == shiftLineId) return line;
+    }
+    return null;
+  }
+
+  String _labelFor(int machineId) =>
+      _labelByMachine[machineId] ?? LineLabels.unknown;
+
+  /// Orders tabs by the machines' last-known server order. `/bootstrap` tabs
+  /// already follow it; this places session-only tabs in their machine's slot
+  /// instead of at the end. Machines never seen in `/bootstrap` go last, in
+  /// their original order.
+  List<_MachineTab> _inMachineOrder(List<_MachineTab> tabs) {
+    final List<int> order = _machineOrder;
+    int rank(int i) {
+      final int known = order.indexOf(tabs[i].machineId);
+      return known >= 0 ? known : order.length + i;
+    }
+
+    final List<int> indices = List<int>.generate(tabs.length, (int i) => i)
+      ..sort((int a, int b) {
+        final int byRank = rank(a).compareTo(rank(b));
+        return byRank != 0 ? byRank : a.compareTo(b);
+      });
+    return <_MachineTab>[for (final int i in indices) tabs[i]];
   }
 
   // ─── TabController lifecycle ──────────────────────────────────────────
 
   void _syncController(List<_MachineTab> tabs, int? activeShiftLineId) {
-    final List<String> keys = <String>[for (final _MachineTab t in tabs) t.key];
+    final List<String> keys = <String>[
+      for (final _MachineTab t in tabs) t.identity,
+    ];
     _tabs = tabs;
     if (_controller != null && _listEquals(_controllerKeys, keys)) return;
 
-    // Preserve the selected machine across tab-list changes: prefer the
-    // previously-selected key, else the registry's active session, else 0.
-    String? targetKey;
-    if (_controller != null &&
-        _controllerKeys.isNotEmpty &&
-        _controller!.index < _controllerKeys.length) {
-      targetKey = _controllerKeys[_controller!.index];
-    }
+    // Preserve the selected machine across tab-list changes. Identity is the
+    // machine, so a claim / release / new session on it keeps the selection.
+    // If the selected machine is gone, stay at the nearest position instead
+    // of jumping to the first tab. On first build, prefer the registry's
+    // active session.
     int initial = 0;
-    if (targetKey != null) {
-      final int i = keys.indexOf(targetKey);
-      if (i >= 0) initial = i;
+    if (_controller != null && _controllerKeys.isNotEmpty) {
+      final int previous = _controller!.index.clamp(
+        0,
+        _controllerKeys.length - 1,
+      );
+      final int i = keys.indexOf(_controllerKeys[previous]);
+      initial = i >= 0 ? i : previous;
     } else if (activeShiftLineId != null) {
       final int i = tabs.indexWhere((t) => t.shiftLineId == activeShiftLineId);
       if (i >= 0) initial = i;
@@ -355,6 +474,7 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
     final int currentIndex = _controller!.index.clamp(0, tabs.length - 1);
     final double animationValue = _controller?.animation?.value ?? currentIndex.toDouble();
     final Color activeAccent = _getInterpolatedColor(animationValue, tabs);
+    final bool tabsFit = _tabLabelsFitCached(context, tabs);
 
     return Scaffold(
       backgroundColor: AppColors.scaffold,
@@ -375,7 +495,11 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
         bottom: tabs.length > 1
             ? TabBar(
                 controller: _controller,
-                isScrollable: false,
+                // Fixed-width tabs while every label fits its share of the
+                // width; scrollable (start-aligned) once any would clip — no
+                // layout assumes a fixed machine count.
+                isScrollable: !tabsFit,
+                tabAlignment: tabsFit ? null : TabAlignment.start,
                 indicatorColor: Colors.white,
                 indicatorWeight: 3,
                 labelColor: Colors.white,
@@ -401,8 +525,7 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
               key: ValueKey<String>(t.key),
               kind: t.kind,
               shiftLineId: t.shiftLineId,
-              lineIndex: t.oneBasedIndex,
-              lineLabel: t.label,
+              lineLabel: t.label == LineLabels.unknown ? null : t.label,
               // The in-body line header is shown only when the tab bar is
               // hidden (single line) — otherwise the tab already labels it.
               showLineHeader: tabs.length <= 1,
@@ -416,6 +539,43 @@ class _MachineDashboardShellState extends ConsumerState<MachineDashboardShell>
       ),
     );
   }
+
+  bool _tabLabelsFitCached(BuildContext context, List<_MachineTab> tabs) {
+    final String key = <Object>[
+      MediaQuery.sizeOf(context).width,
+      MediaQuery.textScalerOf(context),
+      for (final _MachineTab t in tabs) t.label,
+    ].join('\n');
+    if (key != _fitKey) {
+      _fitKey = key;
+      _fitValue = _tabLabelsFit(context, tabs);
+    }
+    return _fitValue;
+  }
+
+  /// Whether every tab label fits a fixed, equal-width tab on this screen.
+  static bool _tabLabelsFit(BuildContext context, List<_MachineTab> tabs) {
+    if (tabs.isEmpty) return true;
+    final double perTab = MediaQuery.sizeOf(context).width / tabs.length;
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    final TextDirection direction = Directionality.of(context);
+    for (final _MachineTab t in tabs) {
+      final TextPainter painter = TextPainter(
+        text: TextSpan(text: t.label, style: AppTextStyles.button),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final double needed =
+          painter.width + _TabLabel.chromeWidth + _tabHorizontalPadding;
+      painter.dispose();
+      if (needed > perTab) return false;
+    }
+    return true;
+  }
+
+  /// [TabBar]'s default `labelPadding` (16 dp each side).
+  static const double _tabHorizontalPadding = 32;
 
   static bool _listEquals(List<String> a, List<String> b) {
     if (a.length != b.length) return false;
@@ -432,6 +592,12 @@ class _TabLabel extends StatelessWidget {
 
   final _MachineTab tab;
 
+  static const double _dotSize = 9;
+  static const double _gap = 8;
+
+  /// Width of everything beside the label text.
+  static const double chromeWidth = _dotSize + _gap;
+
   @override
   Widget build(BuildContext context) {
     final Color dot = switch (tab.kind) {
@@ -443,12 +609,19 @@ class _TabLabel extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Container(
-          width: 9,
-          height: 9,
+          width: _dotSize,
+          height: _dotSize,
           decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
         ),
-        const SizedBox(width: 8),
-        Text(tab.label),
+        const SizedBox(width: _gap),
+        Flexible(
+          child: Text(
+            tab.label,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }
@@ -570,9 +743,10 @@ class _ErrorBody extends StatelessWidget {
 /// View-model for one machine tab.
 class _MachineTab {
   const _MachineTab({
+    required this.identity,
     required this.key,
+    required this.machineId,
     required this.shiftLineId,
-    required this.oneBasedIndex,
     required this.label,
     required this.accent,
     required this.kind,
@@ -582,9 +756,18 @@ class _MachineTab {
     this.waitingShowSpinner = true,
   });
 
+  /// Tab identity for selection: `th-<thermoformingLineId>` (the machine).
+  final String identity;
+
+  /// Page key: the identity plus `/sl-<shiftLineId>` once a session scope
+  /// exists, so a new operator session reloads the page.
   final String key;
+
+  /// `thermoformingLineId` — machine identity, label cache key, order key.
+  final int machineId;
   final int? shiftLineId;
-  final int oneBasedIndex;
+
+  /// Server label, or [LineLabels.unknown] while none is known.
   final String label;
   final Color accent;
   final MachineTabKind kind;

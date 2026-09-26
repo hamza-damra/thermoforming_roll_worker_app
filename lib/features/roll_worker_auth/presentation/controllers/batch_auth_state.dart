@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/errors/app_failure.dart';
+import '../../../../core/errors/biometric_denial.dart';
+import '../../domain/session_batch_repository.dart';
 
 /// Sealed PIN-screen state for the multi-line batch session-start flow.
 @immutable
@@ -30,6 +32,25 @@ class BatchAuthFailure extends BatchAuthState {
   });
   final AppFailure failure;
   final Set<int>? conflictShiftLineIds;
+}
+
+/// The PIN was accepted but the biometric gate refused the login (403
+/// `BIOMETRIC_*`): the login screen opens the fingerprint dialog. This is not
+/// a failure — no wrong-PIN message, no lockout UI.
+///
+/// [resubmit] re-sends the identical request. It captures the PIN and line
+/// ids, so they stay in memory only while this state (and the dialog holding
+/// it) is alive; it never touches this controller's state, so the dialog can
+/// run several attempts before handing the final outcome to
+/// [BatchAuthController.completeBiometricGate].
+class BatchAuthBiometricRequired extends BatchAuthState {
+  const BatchAuthBiometricRequired({
+    required this.denial,
+    required this.resubmit,
+  });
+
+  final BiometricDenial denial;
+  final Future<BatchAuthResult> Function() resubmit;
 }
 
 /// Transient terminal state after a successful submit. The controller

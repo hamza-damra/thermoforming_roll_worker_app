@@ -39,6 +39,19 @@ class ApiPaths {
   /// below is retained for backward compatibility only.
   static const String sessionsStartBatch = '$_rollAppBase/sessions/start-batch';
 
+  /// `GET /api/v1/auth/biometric/login-attempts/status`.
+  /// Headers: `X-Biometric-Attempt-Token` ONLY — no device key, no session
+  /// token (served by `ApiClientFactory.createBiometricStatus`). Long-poll:
+  /// the server holds it up to 25 s. Answers `data.status` for the attempt
+  /// opened by a biometric 403 on `start-batch`, or 410 once the attempt is
+  /// unknown / expired. Read-only: it never logs anyone in.
+  ///
+  /// The 403 names the path in `details.statusPath`; this constant is the
+  /// documented value, used when that field is absent or not a same-origin
+  /// relative path.
+  static const String biometricLoginAttemptStatus =
+      '/api/v1/auth/biometric/login-attempts/status';
+
   // V109: the login-time takeover endpoint
   // (`POST /sessions/takeover-with-roll-declaration`) is intentionally NOT
   // declared here. Mounted-roll ownership moved to the line/operator-shift

@@ -336,6 +336,83 @@ void main() {
     );
   });
 
+  group('RollWorkerBootstrapController — LINE_3 frames', () {
+    test(
+      'a LINE_STATE_CHANGED frame for palletizing line 3 (LINE_3 enabled) '
+      'refetches and the third machine appears',
+      () async {
+        final repo = _MockRepo();
+        List<RollWorkerBootstrapLine> served = <RollWorkerBootstrapLine>[
+          _line(1),
+          _line(2),
+        ];
+        when(repo.fetch).thenAnswer(
+          (_) async => RollWorkerBootstrapSuccess(served),
+        );
+        final sse = FakeRollWorkerLinesSseClient();
+        final container = _container(repo, sse: sse);
+
+        container.read(rollWorkerBootstrapControllerProvider);
+        await _settle();
+        expect(
+          (container.read(rollWorkerBootstrapControllerProvider)
+                  as RollWorkerBootstrapLoaded)
+              .lines,
+          hasLength(2),
+        );
+
+        // Admin enables LINE_3: machine 4 (TF_LINE_3) feeds palletizing
+        // line 3. The frame is a trigger only — its id is never matched
+        // against a machine.
+        served = <RollWorkerBootstrapLine>[_line(1), _line(2), _line(4)];
+        sse.emit(
+          const PickerSseRefreshTriggered(
+            type: 'LINE_STATE_CHANGED',
+            palletizingLineId: 3,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+
+        final RollWorkerBootstrapState state = container.read(
+          rollWorkerBootstrapControllerProvider,
+        );
+        expect(
+          (state as RollWorkerBootstrapLoaded).lines
+              .map((l) => l.thermoformingLineId),
+          <int>[1, 2, 4],
+        );
+      },
+    );
+
+    test('a frame with an unknown type still refetches', () async {
+      final repo = _MockRepo();
+      int calls = 0;
+      when(repo.fetch).thenAnswer((_) async {
+        calls++;
+        return const RollWorkerBootstrapSuccess(<RollWorkerBootstrapLine>[]);
+      });
+      final sse = FakeRollWorkerLinesSseClient();
+      final container = _container(repo, sse: sse);
+
+      container.read(rollWorkerBootstrapControllerProvider);
+      await _settle();
+      expect(calls, 1);
+
+      sse.emit(
+        const PickerSseRefreshTriggered(
+          type: 'SOMETHING_ADDED_LATER',
+          palletizingLineId: 3,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(calls, 2);
+
+      sse.emit(const PickerSseRefreshTriggered());
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(calls, 3, reason: 'a frame with no type at all also refetches');
+    });
+  });
+
   group('RollWorkerBootstrapController — refresh ordering', () {
     test(
       'an out-of-order /bootstrap response never overwrites a fresher one',

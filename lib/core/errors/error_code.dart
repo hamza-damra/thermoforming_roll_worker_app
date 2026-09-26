@@ -33,6 +33,33 @@ enum ErrorCode {
   /// [operatorPinLocked]; UI maps both to the same Arabic locked message.
   operatorLocked('OPERATOR_LOCKED'),
 
+  // ─── Biometric login gate (403 on login, 410 on the attempt status) ────────
+  // See `docs/FRONTEND_HANDOFF_ROLL_WORKER_APP_BIOMETRIC_LOGIN_GATE.md` §4.4.
+  // The PIN was accepted but the worker has no recent fingerprint punch. None
+  // of these is a wrong PIN or a session loss: the login screen opens the
+  // fingerprint dialog instead (`BiometricDenialFailure`).
+
+  /// No valid fingerprint. Carries an attempt token unless
+  /// `details.attemptAvailable` is false.
+  biometricVerificationRequired('BIOMETRIC_VERIFICATION_REQUIRED'),
+
+  /// The last fingerprint is older than the validity window. Same `details`.
+  biometricVerificationExpired('BIOMETRIC_VERIFICATION_EXPIRED'),
+
+  /// The terminal is offline while the factory agent is up. Same `details`.
+  biometricDeviceUnavailable('BIOMETRIC_DEVICE_UNAVAILABLE'),
+
+  /// No terminal id is linked to the account. Never carries a token — only a
+  /// SYSTEM_ADMIN can fix it.
+  biometricMappingMissing('BIOMETRIC_MAPPING_MISSING'),
+
+  /// The terminal link was disabled. Never carries a token.
+  biometricMappingDisabled('BIOMETRIC_MAPPING_DISABLED'),
+
+  /// 410 from the attempt-status long-poll: unknown or expired attempt (the
+  /// two are indistinguishable by design). The dialog offers a retry.
+  biometricLoginAttemptExpired('BIOMETRIC_LOGIN_ATTEMPT_EXPIRED'),
+
   // ─── Multi-line batch session-start ───────────────────────────────────────
   rollWorkerSessionBatchEmpty('ROLL_WORKER_SESSION_BATCH_EMPTY'),
   rollWorkerSessionLineDuplicate('ROLL_WORKER_SESSION_LINE_DUPLICATE'),
@@ -40,6 +67,16 @@ enum ErrorCode {
   rollWorkerSessionLineUsedByOtherWorker(
     'ROLL_WORKER_SESSION_LINE_USED_BY_OTHER_WORKER',
   ),
+
+  // ─── Machine (thermoforming line) state ───────────────────────────────────
+  /// The machine row behind the shift-line is missing (configuration). The
+  /// tab is out of date: refetch `/bootstrap`. Not a session loss.
+  thermoformingLineNotFound('THERMOFORMING_LINE_NOT_FOUND'),
+
+  /// Management paused the machine (409): PIN login and roll actions are
+  /// refused until it resumes. The tab and any session stay; the resume
+  /// arrives as an `/events` refresh frame. Not a session loss.
+  thermoformingLinePaused('THERMOFORMING_LINE_PAUSED'),
 
   // ─── Shift-line state ─────────────────────────────────────────────────────
   thermoformingShiftLineNotFound('THERMOFORMING_SHIFT_LINE_NOT_FOUND'),

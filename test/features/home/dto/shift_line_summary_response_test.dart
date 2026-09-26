@@ -52,6 +52,56 @@ void main() {
       expect(dto.toEntity().completedRollsInSession, 5);
     });
 
+    group('machine identity fields (LINE_3)', () {
+      test('parses thermoformingLineDisplayName for machine C', () {
+        final ShiftLineSummary summary = ShiftLineSummaryResponse.fromJson(
+          _baseJson()
+            ..['thermoformingLineId'] = 4
+            ..['thermoformingLineCode'] = 'TF_LINE_3'
+            ..['thermoformingLineName'] = 'خط التشغيل ج'
+            ..['thermoformingLineDisplayName'] = 'ماكينة C',
+        ).toEntity();
+        expect(summary.thermoformingLineCode, 'TF_LINE_3');
+        expect(summary.thermoformingLineName, 'خط التشغيل ج');
+        expect(summary.thermoformingLineDisplayName, 'ماكينة C');
+      });
+
+      test('absent line fields do not throw and parse as null', () {
+        final Map<String, dynamic> json = _baseJson()
+          ..remove('thermoformingLineCode')
+          ..remove('thermoformingLineName');
+        final ShiftLineSummary summary = ShiftLineSummaryResponse.fromJson(
+          json,
+        ).toEntity();
+        expect(summary.thermoformingLineCode, isNull);
+        expect(summary.thermoformingLineName, isNull);
+        expect(summary.thermoformingLineDisplayName, isNull);
+        expect(summary.completedRollsInSession, 5);
+      });
+
+      test('explicit-null line fields parse the same as absent ones', () {
+        final ShiftLineSummary summary = ShiftLineSummaryResponse.fromJson(
+          _baseJson()
+            ..['thermoformingLineCode'] = null
+            ..['thermoformingLineName'] = null
+            ..['thermoformingLineDisplayName'] = null,
+        ).toEntity();
+        expect(summary.thermoformingLineCode, isNull);
+        expect(summary.thermoformingLineName, isNull);
+        expect(summary.thermoformingLineDisplayName, isNull);
+      });
+
+      test('copyWith keeps the display name', () {
+        final ShiftLineSummary summary = ShiftLineSummaryResponse.fromJson(
+          _baseJson()..['thermoformingLineDisplayName'] = 'ماكينة C',
+        ).toEntity();
+        expect(
+          summary.copyWith(blocked: true).thermoformingLineDisplayName,
+          'ماكينة C',
+        );
+      });
+    });
+
     group('V123 operator-shift-line-scoped consumption metrics', () {
       test('parses consumedWeightKgInSession + rollsContributedInSession', () {
         final Map<String, dynamic> json = _baseJson()

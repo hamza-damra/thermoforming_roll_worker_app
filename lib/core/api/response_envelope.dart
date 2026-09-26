@@ -1,5 +1,7 @@
 import '../errors/app_failure.dart';
+import '../errors/biometric_denial.dart';
 import '../errors/error_code.dart';
+import '../errors/error_messages_ar.dart';
 
 /// Backend success envelope: `{ "success": true, "data": <T> }`.
 ///
@@ -27,6 +29,12 @@ class ResponseEnvelope {
   ///
   /// Returns null if the body is not a failure envelope (caller should fall
   /// back to a [ServerFailure] in that case).
+  ///
+  /// A biometric login refusal (`BIOMETRIC_*`, see
+  /// [BiometricDenial.isDenialCode]) comes back as a [BiometricDenialFailure]
+  /// — branched on `error.code` only, never on the status, so other 403s keep
+  /// their current handling. Its attempt token never lands in a plain
+  /// `details` map.
   static BusinessFailure? tryExtractError(Object? body, {int? statusCode}) {
     if (body is! Map<String, dynamic>) return null;
     if (body['success'] == true) return null;
@@ -40,6 +48,18 @@ class ResponseEnvelope {
     final Map<String, Object?>? details = rawDetails is Map
         ? Map<String, Object?>.from(rawDetails)
         : null;
+    if (code is String && BiometricDenial.isDenialCode(code)) {
+      return BiometricDenialFailure(
+        denial: BiometricDenial.fromEnvelope(
+          code: code,
+          message: message is String && message.trim().isNotEmpty
+              ? message
+              : arabicForErrorCode(ErrorCode.fromWire(code)),
+          details: details,
+        ),
+        statusCode: statusCode,
+      );
+    }
     return BusinessFailure(
       code: ErrorCode.fromWire(code is String ? code : null),
       serverMessage: message is String ? message : null,

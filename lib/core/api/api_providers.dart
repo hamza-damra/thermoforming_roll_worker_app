@@ -13,3 +13,11 @@ final Provider<Dio> dioProvider = Provider<Dio>((ref) {
   final AppConfig config = ref.watch(appConfigProvider);
   return ApiClientFactory.create(config);
 });
+
+/// [Dio] for the unauthenticated biometric attempt-status long-poll only —
+/// no device key, no session token, 40 s receive timeout. See
+/// [ApiClientFactory.createBiometricStatus].
+final Provider<Dio> biometricStatusDioProvider = Provider<Dio>((ref) {
+  final AppConfig config = ref.watch(appConfigProvider);
+  return ApiClientFactory.createBiometricStatus(config);
+});

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
 import 'package:thermoforming_roll_worker/core/errors/error_code.dart';
 import 'package:thermoforming_roll_worker/core/errors/error_messages_ar.dart';
+import 'package:thermoforming_roll_worker/core/errors/failure_classification.dart';
 
 void main() {
   group('ErrorCode', () {
@@ -13,6 +14,8 @@ void main() {
         'ROLL_OP_SESSION_TOKEN_MISSING': ErrorCode.rollOpSessionTokenMissing,
         'OPERATOR_PIN_INVALID': ErrorCode.operatorPinInvalid,
         'OPERATOR_PIN_LOCKED': ErrorCode.operatorPinLocked,
+        'THERMOFORMING_LINE_NOT_FOUND': ErrorCode.thermoformingLineNotFound,
+        'THERMOFORMING_LINE_PAUSED': ErrorCode.thermoformingLinePaused,
         'THERMOFORMING_SHIFT_LINE_NOT_FOUND':
             ErrorCode.thermoformingShiftLineNotFound,
         'THERMOFORMING_SHIFT_LINE_NOT_ACTIVE':
@@ -134,6 +137,26 @@ void main() {
         expect(deviceMessage, isNot(sessionMessage));
       },
     );
+
+    test('machine paused / machine missing get their own Arabic copy and are '
+        'not session losses (LINE_3 §4.3)', () {
+      const BusinessFailure paused = BusinessFailure(
+        code: ErrorCode.thermoformingLinePaused,
+        statusCode: 409,
+      );
+      const BusinessFailure missing = BusinessFailure(
+        code: ErrorCode.thermoformingLineNotFound,
+        statusCode: 404,
+      );
+      expect(
+        arabicMessageFor(paused),
+        'هذا الخط متوقف مؤقتاً من الإدارة. حاول لاحقاً.',
+      );
+      expect(arabicMessageFor(missing), 'الخط غير موجود. يرجى تحديث الشاشة.');
+      expect(isSessionLossCascade(paused), isFalse);
+      expect(isSessionLossCascade(missing), isFalse);
+      expect(isDeviceAuthFault(paused), isFalse);
+    });
 
     test('a missing session-token header reads as a session fault', () {
       expect(

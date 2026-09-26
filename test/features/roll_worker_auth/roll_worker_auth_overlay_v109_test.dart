@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
 import 'package:thermoforming_roll_worker/core/errors/error_code.dart';
+import 'package:thermoforming_roll_worker/core/errors/error_messages_ar.dart';
 import 'package:thermoforming_roll_worker/core/storage/session_index_storage.dart';
 import 'package:thermoforming_roll_worker/core/storage/storage_providers.dart';
 import 'package:thermoforming_roll_worker/core/theme/app_theme.dart';
@@ -68,24 +69,26 @@ ProviderContainer _container(SessionBatchRepository repo) {
   return c;
 }
 
-Widget _wrap(ProviderContainer container) => UncontrolledProviderScope(
-  container: container,
-  child: MaterialApp(
-    theme: AppTheme.light(),
-    home: const Scaffold(
-      body: Stack(
-        children: <Widget>[
-          Positioned.fill(
-            child: RollWorkerAuthOverlay(
-              shiftLineId: _kShiftLineId,
-              accentColor: Colors.teal,
-            ),
+Widget _wrap(ProviderContainer container, {VoidCallback? onLineStale}) =>
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: Stack(
+            children: <Widget>[
+              Positioned.fill(
+                child: RollWorkerAuthOverlay(
+                  shiftLineId: _kShiftLineId,
+                  accentColor: Colors.teal,
+                  onLineStale: onLineStale,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
-    ),
-  ),
-);
+    );
 
 Future<void> _enterPinAndSubmit(WidgetTester tester) async {
   await tester.enterText(find.byType(TextField), '1234');
@@ -159,4 +162,49 @@ void main() {
       );
     },
   );
+
+  group('stale machine state asks the owner to refetch /bootstrap', () {
+    Future<int> staleCallsFor(WidgetTester tester, ErrorCode code) async {
+      final repo = _MockBatchRepo();
+      when(
+        () => repo.startBatch(
+          pin: '1234',
+          shiftLineIds: <int>{_kShiftLineId},
+        ),
+      ).thenAnswer(
+        (_) async => BatchAuthFailureResult(BusinessFailure(code: code)),
+      );
+      int calls = 0;
+      final container = _container(repo);
+      await tester.pumpWidget(_wrap(container, onLineStale: () => calls++));
+      await tester.pumpAndSettle();
+      await _enterPinAndSubmit(tester);
+      return calls;
+    }
+
+    for (final ErrorCode code in <ErrorCode>[
+      ErrorCode.rollWorkerSessionLineInactive,
+      ErrorCode.thermoformingShiftLineNotFound,
+      ErrorCode.thermoformingLineNotFound,
+    ]) {
+      testWidgets('${code.wireValue} → refetch + inline error', (
+        WidgetTester tester,
+      ) async {
+        expect(await staleCallsFor(tester, code), 1);
+        expect(find.text(arabicForErrorCode(code)), findsOneWidget);
+      });
+    }
+
+    for (final ErrorCode code in <ErrorCode>[
+      ErrorCode.operatorPinInvalid,
+      ErrorCode.thermoformingLinePaused,
+    ]) {
+      testWidgets('${code.wireValue} → no refetch', (
+        WidgetTester tester,
+      ) async {
+        expect(await staleCallsFor(tester, code), 0);
+        expect(find.text(arabicForErrorCode(code)), findsOneWidget);
+      });
+    }
+  });
 }

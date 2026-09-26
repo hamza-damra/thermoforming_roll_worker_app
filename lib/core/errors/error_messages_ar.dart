@@ -1,4 +1,5 @@
 import 'app_failure.dart';
+import 'biometric_denial.dart';
 import 'error_code.dart';
 
 /// Arabic UI strings for every backend [ErrorCode] documented in
@@ -27,6 +28,23 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
   ErrorCode.operatorLocked:
       'تم قفل الحساب لعدد كبير من المحاولات الخاطئة. يرجى مراجعة المشرف.',
 
+  // Biometric login gate (handoff §10). Verbatim copies of the server
+  // `message` — the dialog shows the server's own text when present, these
+  // only cover a response that omitted it (and the status long-poll, which
+  // reports MAPPING_* without any message).
+  ErrorCode.biometricVerificationRequired:
+      'يرجى تمرير البصمة على جهاز البصمة ثم إعادة المحاولة.',
+  ErrorCode.biometricVerificationExpired:
+      'انتهت صلاحية التحقق بالبصمة. يرجى تمرير البصمة مرة أخرى ثم إعادة المحاولة.',
+  ErrorCode.biometricDeviceUnavailable:
+      'جهاز البصمة غير متصل حاليًا. يرجى المحاولة بعد قليل أو إبلاغ المسؤول.',
+  ErrorCode.biometricMappingMissing:
+      'لم يتم ربط بصمتك بحسابك بعد. يرجى مراجعة مسؤول النظام.',
+  ErrorCode.biometricMappingDisabled:
+      'ربط البصمة الخاص بحسابك غير مفعّل. يرجى مراجعة مسؤول النظام.',
+  ErrorCode.biometricLoginAttemptExpired:
+      'انتهت مهلة محاولة الدخول. يرجى تسجيل الدخول مرة أخرى.',
+
   // Multi-line batch session-start (handoff §7.3)
   ErrorCode.rollWorkerSessionBatchEmpty: 'يجب اختيار خط واحد على الأقل.',
   ErrorCode.rollWorkerSessionLineDuplicate: 'تم اختيار نفس الخط أكثر من مرة.',
@@ -37,6 +55,11 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
   // backend includes one in `details`.
   ErrorCode.rollWorkerSessionLineUsedByOtherWorker:
       'أحد الخطوط مستخدم بالفعل من قبل موظف آخر.',
+
+  // Machine state (LINE_3 handoff §4.3)
+  ErrorCode.thermoformingLineNotFound: 'الخط غير موجود. يرجى تحديث الشاشة.',
+  ErrorCode.thermoformingLinePaused:
+      'هذا الخط متوقف مؤقتاً من الإدارة. حاول لاحقاً.',
 
   // Shift-line state
   ErrorCode.thermoformingShiftLineNotFound:
@@ -121,9 +144,13 @@ String arabicForErrorCode(ErrorCode code) =>
 /// [BusinessFailure] with code [ErrorCode.rollWorkerSessionLineUsedByOtherWorker],
 /// interpolates `details.ownerOperatorName` when the backend supplied it
 /// (handoff §7.3) so the worker sees *who* owns the conflicting line.
+///
+/// A [BiometricDenialFailure] is the one place the server's own `message` is
+/// shown: the biometric handoff §5 requires it verbatim for every 403 code.
 String arabicMessageFor(AppFailure failure) {
   return switch (failure) {
     NetworkFailure() => noConnectionArabic,
+    BiometricDenialFailure(:final BiometricDenial denial) => denial.message,
     BusinessFailure(:final ErrorCode code, :final Map<String, Object?>? details)
         when code == ErrorCode.rollWorkerSessionLineUsedByOtherWorker =>
       _ownerOperatorMessage(details),

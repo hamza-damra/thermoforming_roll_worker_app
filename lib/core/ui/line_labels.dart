@@ -1,38 +1,29 @@
-/// User-facing line labels for the Roll Worker app: `خط أ`, `خط ب`, …
+/// User-facing line labels for the Roll Worker app: `خط أ`, `خط ب`, `خط ج`, …
 ///
-/// The shop floor speaks in *lines* (`خط`), never machines — so this app must
-/// never surface `ماكينة A/B/1/2`, `خط 1/2`, or raw backend codes like
-/// `TF_LINE_1`. Labels are derived from the backend **line number** (e.g. the
-/// bootstrap row's `machineNumber`), falling back to the 1-based tab position
-/// only when the backend supplies no number — never by tab index alone when a
-/// real line number is available.
+/// The shop floor speaks in *lines* (`خط`), never machines. Owner decision D1
+/// (LINE_3 handoff, option B): a machine is labelled with the server's
+/// **palletizing-line name** (`palletizingLineName` on `/bootstrap` and
+/// `/sessions/me`) — the same wording the Operator dashboard, the Admin App
+/// and the web portal show.
+///
+/// Labels are **never computed on the device**: no letter table, nothing
+/// derived from `machineNumber`, an id, or the tab position. A local
+/// alphabetical table once rendered the third line as `خط ت` while the rest
+/// of the factory calls it `خط ج`. Never surface raw backend identity either:
+/// `lineCode` / `TF_LINE_n`, `lineName` (`خط التشغيل ج`), or the Roll Worker
+/// machine name `lineDisplayName` (`ماكينة C`).
 class LineLabels {
   LineLabels._();
 
-  /// Arabic ordinal letters, alphabetical order: أ، ب، ت، ث، ج، ح …
-  static const List<String> _letters = <String>[
-    'أ',
-    'ب',
-    'ت',
-    'ث',
-    'ج',
-    'ح',
-    'خ',
-    'د',
-  ];
+  /// Neutral placeholder while no server label is known for a machine yet
+  /// (e.g. a session-only tab before any `/bootstrap` or `/sessions/me` row
+  /// named it). Deliberately not a letter.
+  static const String unknown = '…';
 
-  /// Resolves a line label.
-  ///
-  /// Prefers the backend [lineNumber] (1 → `خط أ`, 2 → `خط ب`, …). When it is
-  /// null/≤0, falls back to [fallbackIndex] (the 1-based tab position) so the
-  /// label is always present and stable. Numbers beyond the letter table fall
-  /// back to `خط N`.
-  static String label({int? lineNumber, int? fallbackIndex}) {
-    final int n = (lineNumber != null && lineNumber > 0)
-        ? lineNumber
-        : ((fallbackIndex != null && fallbackIndex > 0) ? fallbackIndex : 1);
-    final int i = n - 1;
-    if (i >= 0 && i < _letters.length) return 'خط ${_letters[i]}';
-    return 'خط $n';
+  /// The server-sent [palletizingLineName], trimmed, or `null` when the
+  /// server sent none (absent, `null`, or blank).
+  static String? fromServer(String? palletizingLineName) {
+    final String? trimmed = palletizingLineName?.trim();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
   }
 }

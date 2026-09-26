@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +11,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../controllers/batch_auth_controller.dart';
 import '../controllers/batch_auth_state.dart';
+import 'biometric_login_gate.dart';
 
 /// Blocking, in-place roll-worker PIN overlay.
 ///
@@ -27,10 +30,17 @@ class RollWorkerAuthOverlay extends ConsumerStatefulWidget {
     super.key,
     required this.shiftLineId,
     required this.accentColor,
+    this.onLineStale,
   });
 
   final int shiftLineId;
   final Color accentColor;
+
+  /// Called when a login failure means this tab's machine state is out of
+  /// date (the shift-line ended or no longer exists between `/bootstrap` and
+  /// the PIN), so the owner can refetch `/bootstrap`. The inline error still
+  /// shows.
+  final VoidCallback? onLineStale;
 
   static const String title = 'تسجيل دخول عامل الرولات';
   static const String helper = 'سجّل دخولك كموظف رولات للبدء بتركيب الرول';
@@ -59,6 +69,10 @@ class _RollWorkerAuthOverlayState
   bool _submitting = false;
   String? _error;
   bool _locked = false;
+
+  /// The fingerprint dialog is open for this overlay's submit. [_submitting]
+  /// stays true meanwhile, so «دخول» cannot start a second attempt.
+  bool _biometricGateOpen = false;
 
   @override
   void initState() {
@@ -120,16 +134,45 @@ class _RollWorkerAuthOverlayState
           _locked = _isLocked(failure);
         });
         if (!_locked) _focusNode.requestFocus();
+        if (_isStaleLine(failure)) widget.onLineStale?.call();
+      case BatchAuthBiometricRequired():
+        // PIN accepted, fingerprint needed: not an error, so no inline
+        // message and no lock. The dialog carries what the resubmit needs.
+        if (_biometricGateOpen) return;
+        _biometricGateOpen = true;
+        _pinController.clear();
+        unawaited(_runBiometricGate(next));
       case BatchAuthInitial():
       case BatchAuthSubmitting():
         break;
     }
   }
 
+  /// Success / failure come back through [_onAuthStateChanged] like any
+  /// login; only a cancel needs handling here.
+  Future<void> _runBiometricGate(BatchAuthBiometricRequired gate) async {
+    final bool cancelled = await runBiometricLoginGate(
+      context,
+      ref,
+      gate,
+      accent: widget.accentColor,
+    );
+    _biometricGateOpen = false;
+    if (!cancelled || !mounted) return;
+    setState(() => _submitting = false);
+    _focusNode.requestFocus();
+  }
+
   bool _isLocked(AppFailure failure) =>
       failure is BusinessFailure &&
       (failure.code == ErrorCode.operatorPinLocked ||
           failure.code == ErrorCode.operatorLocked);
+
+  bool _isStaleLine(AppFailure failure) =>
+      failure is BusinessFailure &&
+      (failure.code == ErrorCode.rollWorkerSessionLineInactive ||
+          failure.code == ErrorCode.thermoformingShiftLineNotFound ||
+          failure.code == ErrorCode.thermoformingLineNotFound);
 
   String _messageFor(AppFailure failure) {
     if (failure is BusinessFailure) {

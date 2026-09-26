@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:thermoforming_roll_worker/core/errors/app_failure.dart';
 import 'package:thermoforming_roll_worker/core/theme/app_theme.dart';
+import 'package:thermoforming_roll_worker/core/ui/line_labels.dart';
 import 'package:thermoforming_roll_worker/features/home/data/shift_line_summary_providers.dart';
 import 'package:thermoforming_roll_worker/features/home/domain/entities/shift_line_summary.dart';
 import 'package:thermoforming_roll_worker/features/home/domain/shift_line_summary_repository.dart';
@@ -50,6 +51,8 @@ void _useTallSurface(WidgetTester tester) {
 Widget _wrap({
   required _MockSummaryRepo summaryRepo,
   required _MockAuthRepo authRepo,
+  String? lineLabel,
+  bool showLineHeader = false,
 }) {
   return ProviderScope(
     overrides: <Override>[
@@ -62,7 +65,11 @@ Widget _wrap({
         textDirection: TextDirection.rtl,
         child: child ?? const SizedBox.shrink(),
       ),
-      home: const RollWorkerHomeScreen(shiftLineId: kShiftLineId),
+      home: RollWorkerHomeScreen(
+        shiftLineId: kShiftLineId,
+        lineLabel: lineLabel,
+        showLineHeader: showLineHeader,
+      ),
     ),
   );
 }
@@ -83,8 +90,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // App bar shows line label (خط أ) instead of TH code or machine label.
-      expect(find.text('خط أ'), findsOneWidget);
+      // No server line label was supplied: the app bar shows the app title,
+      // never a label computed on the device (the old letter fallback read
+      // `خط أ` here), a TH code, or a machine label.
+      expect(find.text(RollWorkerHomeScreen.title), findsOneWidget);
+      expect(find.text('خط أ'), findsNothing);
+      expect(find.textContaining('TH-01'), findsNothing);
       // V123 summary card: operator-shift-line-scoped consumed kg headline +
       // session-scoped closed-rolls count below it. Still no "منك" personal
       // attribution.
@@ -105,6 +116,43 @@ void main() {
       // Empty mounted-roll card (message + helper).
       expect(find.text('لا يوجد رول مركب حالياً'), findsOneWidget);
       expect(find.text('اضغط تركيب رول لبدء رول جديد'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'the server line label is shown verbatim in the app bar and the line '
+    'header; without one the header shows a neutral placeholder',
+    (WidgetTester tester) async {
+      _useTallSurface(tester);
+      final summaryRepo = _MockSummaryRepo();
+      final authRepo = _MockAuthRepo();
+      when(
+        () => summaryRepo.fetchSummary(shiftLineId: kShiftLineId),
+      ).thenAnswer((_) async => SummarySuccess(_summary()));
+
+      await tester.pumpWidget(
+        _wrap(
+          summaryRepo: summaryRepo,
+          authRepo: authRepo,
+          lineLabel: 'خط ج',
+          showLineHeader: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('خط ج'), findsNWidgets(2));
+      expect(find.text('خط ت'), findsNothing);
+
+      await tester.pumpWidget(
+        _wrap(
+          summaryRepo: summaryRepo,
+          authRepo: authRepo,
+          showLineHeader: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('خط ج'), findsNothing);
+      expect(find.text(LineLabels.unknown), findsOneWidget);
+      expect(find.text('خط أ'), findsNothing);
     },
   );
 

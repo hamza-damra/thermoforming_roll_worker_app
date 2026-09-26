@@ -229,6 +229,7 @@ class ShiftLineSummary {
     required this.thermoformingLineName,
     required this.completedRollsInSession,
     required this.completedRollsByCurrentWorker,
+    this.thermoformingLineDisplayName,
     this.consumedWeightKgInSession,
     this.rollsContributedInSession = 0,
     this.consumedRolls = const <ConsumedRoll>[],
@@ -247,12 +248,17 @@ class ShiftLineSummary {
 
   final int shiftLineId;
 
-  /// Short factory-readable code shown in the compact header and bottom nav.
-  /// e.g. `"TH-01"`.
-  final String thermoformingLineCode;
+  /// `TF_LINE_n` business code; `null` when absent. Diagnostics only —
+  /// never UI text.
+  final String? thermoformingLineCode;
 
-  /// Human-readable line name. e.g. `"خط التشكيل 1"`.
-  final String thermoformingLineName;
+  /// Raw stored machine name (e.g. `خط التشغيل ج`); `null` when absent.
+  /// Diagnostics only — never UI text.
+  final String? thermoformingLineName;
+
+  /// Curated Roll Worker machine name (`ماكينة C`); `null` on older backends.
+  /// Not a UI label under the D1 decision — see `LineLabels`.
+  final String? thermoformingLineDisplayName;
 
   /// Rolls closed in the current `RollWorkerSession` (session-scoped).
   /// Resets to 0 on each new login to the same shift-line.
@@ -339,6 +345,7 @@ class ShiftLineSummary {
     int? shiftLineId,
     String? thermoformingLineCode,
     String? thermoformingLineName,
+    String? thermoformingLineDisplayName,
     int? completedRollsInSession,
     int? completedRollsByCurrentWorker,
     double? consumedWeightKgInSession,
@@ -369,6 +376,8 @@ class ShiftLineSummary {
           thermoformingLineCode ?? this.thermoformingLineCode,
       thermoformingLineName:
           thermoformingLineName ?? this.thermoformingLineName,
+      thermoformingLineDisplayName:
+          thermoformingLineDisplayName ?? this.thermoformingLineDisplayName,
       completedRollsInSession:
           completedRollsInSession ?? this.completedRollsInSession,
       completedRollsByCurrentWorker:
@@ -411,6 +420,7 @@ class ShiftLineSummary {
         other.shiftLineId == shiftLineId &&
         other.thermoformingLineCode == thermoformingLineCode &&
         other.thermoformingLineName == thermoformingLineName &&
+        other.thermoformingLineDisplayName == thermoformingLineDisplayName &&
         other.completedRollsInSession == completedRollsInSession &&
         other.completedRollsByCurrentWorker == completedRollsByCurrentWorker &&
         other.consumedWeightKgInSession == consumedWeightKgInSession &&
@@ -434,6 +444,7 @@ class ShiftLineSummary {
     shiftLineId,
     thermoformingLineCode,
     thermoformingLineName,
+    thermoformingLineDisplayName,
     completedRollsInSession,
     completedRollsByCurrentWorker,
     consumedWeightKgInSession,

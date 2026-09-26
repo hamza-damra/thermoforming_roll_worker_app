@@ -101,6 +101,104 @@ void main() {
       expect(dto.currentRollLastKnownWeightKg, 180.5);
     });
 
+    group('LINE_3 (TF_LINE_3 → LINE_3, skewed production ids)', () {
+      // The handoff's example row, before an operator claims machine C.
+      const Map<String, dynamic> machineC = <String, dynamic>{
+        'thermoformingLineId': 4,
+        'lineCode': 'TF_LINE_3',
+        'lineName': 'خط التشغيل ج',
+        'lineDisplayName': 'ماكينة C',
+        'palletizingLineId': 3,
+        'productionLineId': 3,
+        'palletizingLineCode': 'LINE_3',
+        'palletizingLineName': 'خط ج',
+        'machineNumber': 3,
+        'selectable': false,
+        'canStartRollWorkerSession': false,
+        'blocked': false,
+        'handoverPending': false,
+        'lineLifecycleStatus': 'NO_ACTIVE_SHIFT',
+      };
+
+      test('keeps the machine, palletizing and shift-line ids apart', () {
+        final RollWorkerBootstrapLine line = RollWorkerBootstrapLineDto.fromJson(
+          machineC,
+        ).toEntity();
+        expect(line.thermoformingLineId, 4);
+        expect(line.palletizingLineId, 3);
+        expect(line.productionLineId, 3);
+        expect(line.machineNumber, 3);
+        expect(line.shiftLineId, isNull);
+        expect(line.palletizingLineName, 'خط ج');
+        expect(line.lineDisplayName, 'ماكينة C');
+        expect(line.lineCode, 'TF_LINE_3');
+        expect(line.lineName, 'خط التشغيل ج');
+        expect(line.selectable, isFalse);
+      });
+
+      test('an absent or explicit-null lineDisplayName parses as null', () {
+        final Map<String, dynamic> absent = Map<String, dynamic>.of(machineC)
+          ..remove('lineDisplayName');
+        final Map<String, dynamic> explicitNull =
+            Map<String, dynamic>.of(machineC)..['lineDisplayName'] = null;
+        for (final Map<String, dynamic> json in <Map<String, dynamic>>[
+          absent,
+          explicitNull,
+        ]) {
+          final RollWorkerBootstrapLine line =
+              RollWorkerBootstrapLineDto.fromJson(json).toEntity();
+          expect(line.lineDisplayName, isNull);
+          expect(line.palletizingLineName, 'خط ج');
+        }
+      });
+
+      test('lineDisplayName takes part in entity equality', () {
+        final RollWorkerBootstrapLine a = RollWorkerBootstrapLineDto.fromJson(
+          machineC,
+        ).toEntity();
+        final RollWorkerBootstrapLine b = RollWorkerBootstrapLineDto.fromJson(
+          Map<String, dynamic>.of(machineC)..['lineDisplayName'] = 'ماكينة D',
+        ).toEntity();
+        expect(a, isNot(b));
+        expect(
+          a,
+          RollWorkerBootstrapLineDto.fromJson(machineC).toEntity(),
+        );
+      });
+    });
+
+    test('reads the current plan-item product from the currentPlanItem* keys', () {
+      final RollWorkerBootstrapLine line = RollWorkerBootstrapLineDto.fromJson(
+        const <String, dynamic>{
+          'thermoformingLineId': 1,
+          'lineCode': 'TF_LINE_1',
+          'lineName': 'خط التشغيل أ',
+          'shiftLineId': 9120,
+          'currentPlanItemProductTypeId': 12,
+          'currentPlanItemProductName': 'TBS-13 Cup',
+        },
+      ).toEntity();
+      expect(line.currentProductTypeId, 12);
+      expect(line.currentProductTypeName, 'TBS-13 Cup');
+    });
+
+    test('currentPlanItem* keys win over the legacy currentProductType* '
+        'keys', () {
+      final RollWorkerBootstrapLine line = RollWorkerBootstrapLineDto.fromJson(
+        const <String, dynamic>{
+          'thermoformingLineId': 1,
+          'lineCode': 'TF_LINE_1',
+          'lineName': 'خط التشغيل أ',
+          'currentPlanItemProductTypeId': 12,
+          'currentPlanItemProductName': 'New',
+          'currentProductTypeId': 50,
+          'currentProductTypeName': 'Legacy',
+        },
+      ).toEntity();
+      expect(line.currentProductTypeId, 12);
+      expect(line.currentProductTypeName, 'New');
+    });
+
     test('productionLineId falls back to palletizingLineId when absent', () {
       final dto = RollWorkerBootstrapLineDto.fromJson(const <String, dynamic>{
         'thermoformingLineId': 6,

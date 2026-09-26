@@ -67,7 +67,6 @@ class RollWorkerHomeScreen extends ConsumerStatefulWidget {
   const RollWorkerHomeScreen({
     super.key,
     required this.shiftLineId,
-    this.lineIndex = 1,
     this.lineLabel,
     this.showLineHeader = false,
     this.standaloneScaffold = true,
@@ -76,11 +75,9 @@ class RollWorkerHomeScreen extends ConsumerStatefulWidget {
 
   final int shiftLineId;
 
-  /// 1-based position of this machine among active sessions (خط أ، …).
-  final int lineIndex;
-
-  /// Backend-derived line label (`خط أ`, `خط ب`, …) supplied by the shell.
-  /// Falls back to a label derived from [lineIndex] when absent.
+  /// Server line label (`خط أ`, `خط ب`, `خط ج`, …) supplied by the shell, or
+  /// `null` while none is known. Never computed locally (no letter table, no
+  /// index) — see `LineLabels`.
   final String? lineLabel;
 
   /// Whether to render the in-body line-label header. The shell sets this only
@@ -355,10 +352,9 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
     );
   }
 
-  /// User-facing line label (`خط أ`, …). Prefers the shell-supplied backend
-  /// label, falling back to one derived from the 1-based line index.
-  String get _lineLabel =>
-      widget.lineLabel ?? LineLabels.label(fallbackIndex: widget.lineIndex);
+  /// User-facing line label for the in-body header: the shell-supplied server
+  /// label, or a neutral placeholder while none is known — never a letter.
+  String get _lineLabel => widget.lineLabel ?? LineLabels.unknown;
 
   /// Resolves the logged-in roll employee for THIS line from `/sessions/me`:
   /// the worker's display name + this line's raw session start. Returns a
@@ -462,7 +458,9 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
       shiftLineId: _shiftLineId,
       rollMounted: rollMounted,
       employeeName: employeeName,
-      lineLabel: _lineLabel,
+      // Omit the line row rather than name the wrong line (or a placeholder)
+      // while no server label is known.
+      lineLabel: widget.lineLabel,
       productName: _currentProductName(),
     );
     if (left == true && mounted) {
@@ -740,7 +738,7 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
     if (!widget.standaloneScaffold) return body;
 
     return AppScaffold(
-      title: _lineLabel,
+      title: widget.lineLabel ?? RollWorkerHomeScreen.title,
       actions: <Widget>[
         IconButton(
           tooltip: RollWorkerHomeScreen.printerSettingsTooltip,
