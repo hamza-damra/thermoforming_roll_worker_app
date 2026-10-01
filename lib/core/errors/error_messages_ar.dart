@@ -70,6 +70,10 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
       'لا يوجد منتج محدد حالياً على خط الطبليات المرتبط. حدد المنتج قبل تحميل الرول.',
   ErrorCode.productionPlanItemRequired:
       'لا يوجد منتج نشط على هذا الخط. يرجى مراجعة المشرف لإضافة عنصر إلى خطة الإنتاج.',
+  ErrorCode.shiftLineAlreadyHasActiveRoll:
+      'يوجد رول مركّب حالياً على هذا الخط. أنزِل الرول الحالي قبل تركيب رول جديد.',
+  ErrorCode.multipleActiveMountedRollsOnLine:
+      'يوجد أكثر من رول مركّب مسجّل على هذا الخط. يرجى مراجعة المشرف.',
 
   // Roll lifecycle (handoff §7.1)
   ErrorCode.rollNotFound: 'الرول غير موجود. تأكد من رقم الرول.',
@@ -82,6 +86,10 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
       'نوع الرول غير مسموح للمنتج الحالي على هذا الخط.',
   ErrorCode.rollCuringMinimumNotMet:
       'هذا الرول لم يكتمل فترة الحضانة الدنيا بعد.',
+  ErrorCode.rollGrindingApprovalPending:
+      'هذا الرول بانتظار قرار المدير على توصية الجرش ولا يمكن تركيبه الآن.',
+  ErrorCode.rollScrapReservedForGrinding:
+      'هذا رول جرش مخصّص للجرش المباشر ولا يمكن تركيبه على الخط.',
   ErrorCode.noActiveRollOnLine: 'لا يوجد رول مركب حالياً على هذا الخط.',
   ErrorCode.noOpenSegmentOnItem:
       'خطأ داخلي في حالة الرول. يرجى تحديث الشاشة وإعادة المحاولة.',
@@ -119,6 +127,11 @@ const Map<ErrorCode, String> _arabicByCode = <ErrorCode, String>{
   // treats this code as already-acknowledged and dismisses the modal).
   ErrorCode.rollAnnouncementNotFound: 'لم تعد هذه الملاحظة متاحة.',
 
+  // «بحث بوقت الإنتاج» — generic phrasing; [arabicMessageFor] names the
+  // field from `details` when the backend supplied it.
+  ErrorCode.rollProductionTimeInvalid:
+      'وقت الإنتاج المُدخل غير صحيح. تأكد من التاريخ والوقت على الملصق.',
+
   // Generic
   ErrorCode.validationError: 'حدث خطأ، حاول مرة أخرى.',
 };
@@ -154,10 +167,38 @@ String arabicMessageFor(AppFailure failure) {
     BusinessFailure(:final ErrorCode code, :final Map<String, Object?>? details)
         when code == ErrorCode.rollWorkerSessionLineUsedByOtherWorker =>
       _ownerOperatorMessage(details),
+    BusinessFailure(:final ErrorCode code, :final Map<String, Object?>? details)
+        when code == ErrorCode.rollProductionTimeInvalid =>
+      _productionTimeMessage(details),
     BusinessFailure(:final ErrorCode code) => arabicForErrorCode(code),
     ServerFailure() => genericRetryArabic,
     UnknownFailure() => genericRetryArabic,
   };
+}
+
+/// Arabic text for `ROLL_PRODUCTION_TIME_INVALID`, built from
+/// `details.field` / `details.reason`. Falls back to the generic phrasing for
+/// any value it does not know.
+String _productionTimeMessage(Map<String, Object?>? details) {
+  final Object? reason = details?['reason'];
+  if (reason == 'NONEXISTENT_LOCAL_TIME') {
+    return 'هذا الوقت غير موجود في توقيت المصنع بسبب تغيير الساعة (التوقيت الصيفي). تأكد من الساعة على الملصق.';
+  }
+  if (reason == 'INVALID_DATE') {
+    return 'هذا التاريخ غير موجود. تأكد من اليوم والشهر على الملصق.';
+  }
+  final String? field = switch (details?['field']) {
+    'year' => 'السنة',
+    'month' => 'الشهر',
+    'day' => 'اليوم',
+    'hour' => 'الساعة',
+    'minute' => 'الدقيقة',
+    _ => null,
+  };
+  if (field != null) {
+    return reason == 'REQUIRED' ? 'أدخل $field.' : 'قيمة $field غير صحيحة.';
+  }
+  return arabicForErrorCode(ErrorCode.rollProductionTimeInvalid);
 }
 
 String _ownerOperatorMessage(Map<String, Object?>? details) {

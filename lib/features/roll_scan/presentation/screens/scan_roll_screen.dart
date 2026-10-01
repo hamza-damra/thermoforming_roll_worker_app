@@ -50,14 +50,8 @@ class ScanRollScreen extends ConsumerStatefulWidget {
   /// passes every other test. Every code that is terminal for mounting must be
   /// listed here, and covered by the table test in `scan_roll_screen_test.dart`.
   @visibleForTesting
-  static RollScanBlockedKind? blockedKindFor(ErrorCode code) => switch (code) {
-    ErrorCode.rollSentToGrindingNotReusable => RollScanBlockedKind.grinding,
-    ErrorCode.rollAlreadyConsumed => RollScanBlockedKind.consumed,
-    ErrorCode.rollAdminCancelled => RollScanBlockedKind.adminCancelled,
-    ErrorCode.rollReconciledOutOfStock =>
-      RollScanBlockedKind.reconciledOutOfStock,
-    _ => null,
-  };
+  static RollScanBlockedKind? blockedKindFor(ErrorCode code) =>
+      rollScanBlockedKindFor(code);
 
   @override
   ConsumerState<ScanRollScreen> createState() => _ScanRollScreenState();

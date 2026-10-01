@@ -27,6 +27,8 @@ import '../../../printer/presentation/screens/printer_settings_screen.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_controller.dart';
 import '../../../roll_scan/presentation/controllers/roll_scan_state.dart';
 import '../../../roll_scan/presentation/screens/scan_roll_screen.dart';
+import '../../../roll_search/presentation/controllers/roll_search_controller.dart';
+import '../../../roll_search/presentation/screens/production_time_search_screen.dart';
 import '../../../sessions_me/presentation/controllers/sessions_me_controller.dart';
 import '../../../sessions_me/presentation/controllers/sessions_me_state.dart';
 import '../../domain/entities/line_takeover.dart';
@@ -39,6 +41,7 @@ import '../../../sessions_me/domain/entities/roll_worker_me.dart';
 import '../../domain/entities/allowed_roll.dart';
 import '../widgets/empty_roll_state_card.dart';
 import '../widgets/compact_mounted_roll_card.dart';
+import '../widgets/mounted_roll_note_card.dart';
 import '../widgets/consumed_rolls_section.dart';
 import '../widgets/home_shimmer_skeleton.dart';
 import '../widgets/leave_line_confirm_dialog.dart';
@@ -100,6 +103,7 @@ class RollWorkerHomeScreen extends ConsumerStatefulWidget {
   // Fixed bottom action labels — state-driven: mount when no roll is
   // mounted, unmount ("إنزال") when one is.
   static const String registerRoll = 'تركيب رول';
+  static const String searchByProductionTime = 'بحث بوقت الإنتاج';
   static const String closeCurrentRoll = 'إنزال الرول الحالي';
   static const String closedRollSnack = 'تم إنزال الرول بنجاح';
   static const String refreshFailed = 'تعذر تحديث البيانات. حاول مرة أخرى.';
@@ -170,6 +174,23 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => ScanRollScreen(
+          shiftLineId: _shiftLineId,
+          accentColor: widget.accentColor,
+        ),
+      ),
+    );
+  }
+
+  /// «بحث بوقت الإنتاج» — for a roll whose barcode cannot be scanned. Starts
+  /// from a clean search and a clean scan state; a mount from its preview goes
+  /// through the same scan controller as [_openScanScreen], so the summary
+  /// refresh below fires the same way.
+  Future<void> _openProductionTimeSearch(BuildContext context) async {
+    ref.read(rollSearchControllerProvider(_shiftLineId).notifier).reset();
+    ref.read(rollScanControllerProvider(_shiftLineId).notifier).clearError();
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ProductionTimeSearchScreen(
           shiftLineId: _shiftLineId,
           accentColor: widget.accentColor,
         ),
@@ -730,6 +751,9 @@ class _RollWorkerHomeScreenState extends ConsumerState<RollWorkerHomeScreen> {
                   icon: Icons.qr_code_scanner_rounded,
                   onPressed: () => _openScanScreen(context),
                   color: widget.accentColor,
+                  secondaryLabel: RollWorkerHomeScreen.searchByProductionTime,
+                  secondaryIcon: Icons.manage_search_rounded,
+                  onSecondaryPressed: () => _openProductionTimeSearch(context),
                 ),
             ],
           )
@@ -767,7 +791,23 @@ class _MountSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final SummaryMountedRoll? roll = summaryMountedRoll;
     if (roll != null) {
-      return CompactMountedRollCard(roll: roll, accentColor: accentColor);
+      // V215: the roll's production note sits directly under the mounted-roll
+      // card. It is read from the current summary every build, so it follows
+      // the mounted roll (and disappears with it) — never cached locally.
+      final String? note = roll.visibleProductionNote;
+      final Widget card = CompactMountedRollCard(
+        roll: roll,
+        accentColor: accentColor,
+      );
+      if (note == null) return card;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          card,
+          const SizedBox(height: 10),
+          MountedRollNoteCard(note: note),
+        ],
+      );
     }
     return EmptyRollStateCard(accent: accentColor);
   }

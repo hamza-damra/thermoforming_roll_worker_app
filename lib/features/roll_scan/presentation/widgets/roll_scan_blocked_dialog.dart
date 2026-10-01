@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/errors/app_failure.dart';
+import '../../../../core/errors/error_code.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/util/arabic_datetime.dart';
@@ -16,6 +17,20 @@ enum RollScanBlockedKind {
   adminCancelled,
   reconciledOutOfStock,
 }
+
+/// Maps a mount-refusal code to its blocked-roll dialog kind, or `null` when
+/// the refusal has no dedicated dialog (it is shown as plain Arabic text).
+///
+/// Shared by the scan screen and the «بحث بوقت الإنتاج» preview so both show
+/// the same dialog for the same refusal. Every code that is terminal for
+/// mounting must be listed here.
+RollScanBlockedKind? rollScanBlockedKindFor(ErrorCode code) => switch (code) {
+  ErrorCode.rollSentToGrindingNotReusable => RollScanBlockedKind.grinding,
+  ErrorCode.rollAlreadyConsumed => RollScanBlockedKind.consumed,
+  ErrorCode.rollAdminCancelled => RollScanBlockedKind.adminCancelled,
+  ErrorCode.rollReconciledOutOfStock => RollScanBlockedKind.reconciledOutOfStock,
+  _ => null,
+};
 
 /// Structured fields parsed from the rejection's `error.details`. Every field
 /// is optional — the backend may omit any of them — so the dialog guards each

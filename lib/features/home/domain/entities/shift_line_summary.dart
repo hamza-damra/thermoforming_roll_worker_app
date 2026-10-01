@@ -7,6 +7,10 @@ import 'line_takeover.dart';
 ///
 /// `lastKnownWeightKg` is `null` when no weight has been recorded yet for the
 /// active consumption state — never substitute the roll's start weight.
+///
+/// `productionNote` (V215) is the note the Roll Production operator typed when
+/// the physical roll was registered. It belongs to the roll, not the mount, so
+/// it is read straight from every summary — never cached across mounts.
 @immutable
 class SummaryMountedRoll {
   const SummaryMountedRoll({
@@ -16,6 +20,7 @@ class SummaryMountedRoll {
     required this.rollTypeCode,
     required this.rollTypeName,
     this.lastKnownWeightKg,
+    this.productionNote,
   });
 
   final int consumptionItemId;
@@ -24,6 +29,14 @@ class SummaryMountedRoll {
   final String rollTypeCode;
   final String rollTypeName;
   final double? lastKnownWeightKg;
+  final String? productionNote;
+
+  /// The production note to display, or `null` when absent/blank (the card is
+  /// hidden then — never an empty card).
+  String? get visibleProductionNote {
+    final String? note = productionNote?.trim();
+    return (note == null || note.isEmpty) ? null : note;
+  }
 
   SummaryMountedRoll copyWith({double? lastKnownWeightKg}) =>
       SummaryMountedRoll(
@@ -33,6 +46,7 @@ class SummaryMountedRoll {
         rollTypeCode: rollTypeCode,
         rollTypeName: rollTypeName,
         lastKnownWeightKg: lastKnownWeightKg ?? this.lastKnownWeightKg,
+        productionNote: productionNote,
       );
 
   @override
@@ -44,7 +58,8 @@ class SummaryMountedRoll {
         other.generatedRollId == generatedRollId &&
         other.rollTypeCode == rollTypeCode &&
         other.rollTypeName == rollTypeName &&
-        other.lastKnownWeightKg == lastKnownWeightKg;
+        other.lastKnownWeightKg == lastKnownWeightKg &&
+        other.productionNote == productionNote;
   }
 
   @override
@@ -55,6 +70,7 @@ class SummaryMountedRoll {
     rollTypeCode,
     rollTypeName,
     lastKnownWeightKg,
+    productionNote,
   );
 }
 

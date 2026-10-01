@@ -10,6 +10,7 @@ class SummaryMountedRollResponse {
     required this.rollTypeCode,
     required this.rollTypeName,
     this.lastKnownWeightKg,
+    this.productionNote,
   });
 
   factory SummaryMountedRollResponse.fromJson(Map<String, dynamic> json) {
@@ -20,6 +21,8 @@ class SummaryMountedRollResponse {
       rollTypeCode: json['rollTypeCode'] as String,
       rollTypeName: json['rollTypeName'] as String,
       lastKnownWeightKg: (json['lastKnownWeightKg'] as num?)?.toDouble(),
+      // V215: absent or null when the roll has no production note.
+      productionNote: json['productionNote'] as String?,
     );
   }
 
@@ -29,6 +32,7 @@ class SummaryMountedRollResponse {
   final String rollTypeCode;
   final String rollTypeName;
   final double? lastKnownWeightKg;
+  final String? productionNote;
 
   SummaryMountedRoll toEntity() => SummaryMountedRoll(
     consumptionItemId: consumptionItemId,
@@ -37,6 +41,7 @@ class SummaryMountedRollResponse {
     rollTypeCode: rollTypeCode,
     rollTypeName: rollTypeName,
     lastKnownWeightKg: lastKnownWeightKg,
+    productionNote: productionNote,
   );
 }
 

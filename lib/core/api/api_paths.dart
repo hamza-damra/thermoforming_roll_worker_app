@@ -53,10 +53,10 @@ class ApiPaths {
       '/api/v1/auth/biometric/login-attempts/status';
 
   // V109: the login-time takeover endpoint
-  // (`POST /sessions/takeover-with-roll-declaration`) is intentionally NOT
-  // declared here. Mounted-roll ownership moved to the line/operator-shift
-  // context; login while a roll is mounted now succeeds on the normal
-  // start-batch path, so the app never invokes the takeover endpoint.
+  // (`POST /sessions/takeover-with-roll-declaration`) was never used by this
+  // app and has since been removed from the backend. Mounted-roll ownership
+  // lives in the line/operator-shift context; login while a roll is mounted
+  // succeeds on the normal start-batch path.
 
   /// `GET {base}/sessions/me`.
   /// Headers: X-Device-Key + X-Session-Token (any of the worker's tokens).
@@ -104,6 +104,14 @@ class ApiPaths {
   /// Headers: X-Device-Key, X-Session-Token. Body: `{ "generatedRollId": "..." }`.
   static String scanRoll(int shiftLineId) =>
       '$_rollAppBase/shift-lines/$shiftLineId/scan-roll';
+
+  /// `GET {base}/shift-lines/{shiftLineId}/rolls/by-production-time`
+  /// `?year=&month=&day=&hour=&minute=` (hour 0–23, factory time).
+  /// Headers: X-Device-Key, X-Session-Token. Read-only: finds the roll(s)
+  /// produced in that minute and says whether each can be mounted on this
+  /// line. Mounting a found roll is the normal [scanRoll].
+  static String rollsByProductionTime(int shiftLineId) =>
+      '$_rollAppBase/shift-lines/$shiftLineId/rolls/by-production-time';
 
   // ─── Previous-roll resolution ─────────────────────────────────────────────
 

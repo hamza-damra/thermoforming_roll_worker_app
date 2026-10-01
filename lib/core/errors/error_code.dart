@@ -87,6 +87,13 @@ enum ErrorCode {
   /// item. Documented in the realtime+line-management handoff §7.1.
   productionPlanItemRequired('PRODUCTION_PLAN_ITEM_REQUIRED'),
 
+  /// Mount refused: the line already carries a mounted roll.
+  shiftLineAlreadyHasActiveRoll('SHIFT_LINE_ALREADY_HAS_ACTIVE_ROLL'),
+
+  /// Mount refused: the line's records show more than one mounted roll
+  /// (corrupt data — a manager must clean it up).
+  multipleActiveMountedRollsOnLine('MULTIPLE_ACTIVE_MOUNTED_ROLLS_ON_LINE'),
+
   // ─── Roll lifecycle ───────────────────────────────────────────────────────
   rollNotFound('ROLL_NOT_FOUND'),
   rollAlreadyConsumed('ROLL_ALREADY_CONSUMED'),
@@ -95,6 +102,18 @@ enum ErrorCode {
   rollBlocked('ROLL_BLOCKED'),
   rollTypeNotAllowedForProduct('ROLL_TYPE_NOT_ALLOWED_FOR_PRODUCT'),
   rollCuringMinimumNotMet('ROLL_CURING_MINIMUM_NOT_MET'),
+
+  /// Mount refused: the roll's grinding recommendation awaits a manager.
+  rollGrindingApprovalPending('ROLL_GRINDING_APPROVAL_PENDING'),
+
+  /// Mount refused: a SCRAP roll is reserved for direct grinding.
+  rollScrapReservedForGrinding('ROLL_SCRAP_RESERVED_FOR_GRINDING'),
+
+  /// «بحث بوقت الإنتاج»: the entered year / month / day / hour / minute is
+  /// not a real factory-time minute. `details.field` names the field
+  /// (`year`, `month`, `day`, `hour`, `minute`); `details.reason` is
+  /// `REQUIRED`, `OUT_OF_RANGE`, `INVALID_DATE` or `NONEXISTENT_LOCAL_TIME`.
+  rollProductionTimeInvalid('ROLL_PRODUCTION_TIME_INVALID'),
   noActiveRollOnLine('NO_ACTIVE_ROLL_ON_LINE'),
   noOpenSegmentOnItem('NO_OPEN_SEGMENT_ON_ITEM'),
 
